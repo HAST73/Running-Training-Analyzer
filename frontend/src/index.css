@@ -1,0 +1,40 @@
+body {
+  font-family: Arial, sans-serif;
+  background: #f7f7f7;
+  margin: 0;
+  padding: 0;
+}
+h1 {
+  background: #2d6a4f;
+  color: #fff;
+  padding: 1em;
+  margin: 0;
+}
+nav {
+  background: #40916c;
+  padding: 0.5em;
+}
+nav a {
+  color: #fff;
+  margin-right: 1em;
+  text-decoration: none;
+}
+section, form {
+  background: #fff;
+  margin: 2em auto;
+  padding: 2em;
+  border-radius: 5px;
+  max-width: 500px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+button {
+  background: #40916c;
+  color: #fff;
+  border: none;
+  padding: 0.5em 1em;
+  border-radius: 3px;
+  cursor: pointer;
+}
+button:hover {
+  background: #2d6a4f;
+}
