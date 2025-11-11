@@ -6,6 +6,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.conf import settings
 from django.urls import reverse
+from datetime import datetime, timezone as dt_timezone, timedelta
 import json
 import os
 import requests
@@ -72,6 +73,8 @@ def logout(request):
 STRAVA_CLIENT_ID = os.environ.get("STRAVA_CLIENT_ID", "")
 STRAVA_CLIENT_SECRET = os.environ.get("STRAVA_CLIENT_SECRET", "")
 STRAVA_REDIRECT_PATH = "/oauth/strava/callback/"
+# Where to send user after successful OAuth; default to CRA dev server (use 127.0.0.1 to match cookie host)
+FRONTEND_REDIRECT_URL = os.environ.get("FRONTEND_REDIRECT_URL", "http://127.0.0.1:3000/#home")
 
 
 def strava_login(request):
@@ -106,6 +109,7 @@ def strava_callback(request):
 	access_token = token_data.get("access_token")
 	refresh_token = token_data.get("refresh_token")
 	expires_at = token_data.get("expires_at")
+	expires_in = token_data.get("expires_in")
 
 	if not request.user.is_authenticated:
 		# Auto-create a local user if not logged in (simplified)
@@ -118,8 +122,13 @@ def strava_callback(request):
 	profile.strava_athlete_id = str(athlete.get("id"))
 	profile.strava_access_token = access_token
 	profile.strava_refresh_token = refresh_token
-	if expires_at:
-		profile.strava_token_expires_at = timezone.datetime.fromtimestamp(expires_at, tz=timezone.utc)
+	if isinstance(expires_at, (int, float)):
+		profile.strava_token_expires_at = datetime.fromtimestamp(int(expires_at), tz=dt_timezone.utc)
+	elif isinstance(expires_in, (int, float)):
+		profile.strava_token_expires_at = timezone.now() + timedelta(seconds=int(expires_in))
 	profile.save()
 	ActivityLog.objects.create(user=request.user, action="strava_link", metadata={"athlete_id": athlete.get("id")})
-	return HttpResponseRedirect("/#home")
+	# Explicitly save session to ensure cookie set before redirect
+	request.session.save()
+	# Redirect back to frontend app (SPA)
+	return HttpResponseRedirect(FRONTEND_REDIRECT_URL)

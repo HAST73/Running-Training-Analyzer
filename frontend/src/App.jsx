@@ -29,6 +29,7 @@ function App() {
       window.location.hash = '#home';
     }
     window.addEventListener('hashchange', onHashChange);
+    // Po powrocie z OAuth Strava dopiszemy znacznik w hash (?from=strava)
     fetchSession();
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
