@@ -1,0 +1,4 @@
+Django==5.2.7
+psycopg[binary]==3.2.12
+requests>=2.31.0,<3
+django-cors-headers>=4.4.0,<5

@@ -10,6 +10,17 @@ function App() {
   // Minimalny, prosty hash-router, żeby komponent się prze-renderował po zmianie #hash
   const normalizeHash = () => (window.location.hash || '#home').toLowerCase();
   const [route, setRoute] = useState(normalizeHash());
+  const [session, setSession] = useState({ loading: true, authenticated: false });
+
+  const fetchSession = async () => {
+    try {
+      const res = await fetch('http://127.0.0.1:8000/api/session/', { credentials: 'include' });
+      const data = await res.json();
+      setSession({ loading: false, ...data });
+    } catch (e) {
+      setSession({ loading: false, authenticated: false });
+    }
+  };
 
   useEffect(() => {
     const onHashChange = () => setRoute(normalizeHash());
@@ -18,29 +29,39 @@ function App() {
       window.location.hash = '#home';
     }
     window.addEventListener('hashchange', onHashChange);
+    fetchSession();
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
+
+  const handleLogout = async () => {
+    await fetch('http://127.0.0.1:8000/api/logout/', { method: 'POST', credentials: 'include' });
+    setSession({ loading: false, authenticated: false });
+    window.location.hash = '#login';
+  };
+
+  const afterAuth = () => {
+    fetchSession();
+    window.location.hash = '#home';
+  };
+
+  const authed = session.authenticated;
 
   return (
     <div>
       <h1>Running Training Analyzer</h1>
-      {/* Prosta nawigacja */}
       <nav>
         <a href="#home">Strona główna</a> |{' '}
-        <a href="#login">Logowanie</a> |{' '}
-        <a href="#register">Rejestracja</a> |{' '}
-        <a href="#workouts">Treningi</a> |{' '}
-        <a href="#social">Społeczność</a> |{' '}
-        <a href="#events">Wydarzenia</a>
+        {!authed && <><a href="#login">Logowanie</a> |{' '}<a href="#register">Rejestracja</a> |{' '}</>}
+        {authed && <><a href="#workouts">Treningi</a> |{' '}<a href="#social">Społeczność</a> |{' '}<a href="#events">Wydarzenia</a> |{' '}<button onClick={handleLogout}>Wyloguj</button></>}
       </nav>
       {/* Prosty routing */}
       <div style={{marginTop: '2em'}}>
-        {route === '#login' && <Login />}
-        {route === '#register' && <Register />}
-        {route === '#workouts' && <Workouts />}
-        {route === '#social' && <Social />}
-        {route === '#events' && <Events />}
-        {(route === '' || route === '#home') && <Home />}
+        {!authed && (route === '#register') && <Register afterAuth={afterAuth} />}
+        {!authed && (route === '#login' || route === '#home') && <Login afterAuth={afterAuth} />}
+        {authed && route === '#workouts' && <Workouts />}
+        {authed && route === '#social' && <Social />}
+        {authed && route === '#events' && <Events />}
+        {authed && (route === '#home' || route === '') && <Home />}
       </div>
     </div>
   );

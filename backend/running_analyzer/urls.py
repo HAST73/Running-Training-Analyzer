@@ -16,7 +16,14 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path
+from users import views as user_views
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('api/session/', user_views.session, name='session'),
+    path('api/register/', user_views.register, name='register'),
+    path('api/login/', user_views.login, name='login'),
+    path('api/logout/', user_views.logout, name='logout'),
+    path('oauth/strava/login/', user_views.strava_login, name='strava_login'),
+    path('oauth/strava/callback/', user_views.strava_callback, name='strava_callback'),
 ]
