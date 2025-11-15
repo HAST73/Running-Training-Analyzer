@@ -17,6 +17,7 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 from users import views as user_views
+from workouts import views as workout_views
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -26,4 +27,7 @@ urlpatterns = [
     path('api/logout/', user_views.logout, name='logout'),
     path('oauth/strava/login/', user_views.strava_login, name='strava_login'),
     path('oauth/strava/callback/', user_views.strava_callback, name='strava_callback'),
+    path('api/workouts/', workout_views.list_workouts, name='workouts_list'),
+    path('api/workouts/upload/', workout_views.upload_workout, name='workouts_upload'),
+    path('api/workouts/<int:workout_id>/', workout_views.delete_workout, name='workouts_delete'),
 ]
