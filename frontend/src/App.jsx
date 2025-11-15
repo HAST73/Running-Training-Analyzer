@@ -47,13 +47,36 @@ function App() {
 
   const authed = session.authenticated;
 
+  const isActive = (hash) => route === hash;
+
   return (
     <div>
-      <h1>Running Training Analyzer</h1>
+      <h1 className="app-logo">
+        <img src="/materials/logo.png" alt="Running Training Analyzer" />
+      </h1>
       <nav>
-        <a href="#home">Strona główna</a> |{' '}
-        {!authed && <><a href="#login">Logowanie</a> |{' '}<a href="#register">Rejestracja</a> |{' '}</>}
-        {authed && <><a href="#workouts">Treningi</a> |{' '}<a href="#social">Społeczność</a> |{' '}<a href="#events">Wydarzenia</a> |{' '}<button onClick={handleLogout}>Wyloguj</button></>}
+        <div className="nav-left">
+          <a href="#home" className={isActive('#home') ? 'active' : ''}>Strona główna</a>
+          {!authed && (
+            <>
+              <a href="#login" className={isActive('#login') ? 'active' : ''}>Logowanie</a>
+              <a href="#register" className={isActive('#register') ? 'active' : ''}>Rejestracja</a>
+            </>
+          )}
+          {authed && (
+            <>
+              <a href="#workouts" className={isActive('#workouts') ? 'active' : ''}>Treningi</a>
+              <a href="#social" className={isActive('#social') ? 'active' : ''}>Społeczność</a>
+              <a href="#events" className={isActive('#events') ? 'active' : ''}>Wydarzenia</a>
+            </>
+          )}
+        </div>
+
+        {authed && (
+          <div className="nav-right">
+            <button onClick={handleLogout}>Wyloguj</button>
+          </div>
+        )}
       </nav>
       {/* Prosty routing */}
       <div style={{marginTop: '2em'}}>
