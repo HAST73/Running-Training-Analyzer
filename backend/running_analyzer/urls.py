@@ -30,4 +30,5 @@ urlpatterns = [
     path('api/workouts/', workout_views.list_workouts, name='workouts_list'),
     path('api/workouts/upload/', workout_views.upload_workout, name='workouts_upload'),
     path('api/workouts/<int:workout_id>/', workout_views.delete_workout, name='workouts_delete'),
+    path('api/workouts/import_strava/', workout_views.import_strava_workouts, name='workouts_import_strava'),
 ]
