@@ -6,6 +6,7 @@ class Workout(models.Model):
 	user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="workouts")
 	external_id = models.CharField(max_length=128, blank=True, null=True)
 	source = models.CharField(max_length=64, default="json")
+	performed_at = models.DateTimeField(blank=True, null=True)
 	manual = models.BooleanField(default=False)
 	title = models.CharField(max_length=255)
 	distance_m = models.FloatField(blank=True, null=True)

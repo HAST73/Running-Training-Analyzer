@@ -140,8 +140,9 @@ function Workouts() {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: '1.1fr 1.1fr',
+          gridTemplateColumns: 'repeat(2, minmax(320px, 1fr))',
           gap: '3rem',
+          justifyContent: 'center',
           margin: '0 auto 1.5em auto',
           maxWidth: '900px',
         }}
@@ -218,9 +219,10 @@ function Workouts() {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
+            gridTemplateColumns: 'repeat(2, minmax(320px, 1fr))',
             gap: '3rem',
             marginTop: '2em',
+            justifyContent: 'center',
             margin: '0 auto',
             maxWidth: '900px',
           }}
@@ -245,7 +247,12 @@ function Workouts() {
                     }}
                   >
                     <div>
-                      <strong>{w.title}</strong>
+                      <strong>
+                        Bieg{' '}
+                        {(w.performed_at || w.created_at)
+                          ? new Date(w.performed_at || w.created_at).toLocaleDateString('pl-PL')
+                          : ''}
+                      </strong>
                       {w.distance_m && (
                         <span style={{ marginLeft: '0.5em', color: '#555' }}>
                           {(w.distance_m / 1000).toFixed(1)} km
@@ -284,7 +291,12 @@ function Workouts() {
                     }}
                   >
                     <div>
-                      <strong>{w.title}</strong>
+                      <strong>
+                        Bieg{' '}
+                        {(w.performed_at || w.created_at)
+                          ? new Date(w.performed_at || w.created_at).toLocaleDateString('pl-PL')
+                          : ''}
+                      </strong>
                       {w.distance_m && (
                         <span style={{ marginLeft: '0.5em', color: '#555' }}>
                           {(w.distance_m / 1000).toFixed(1)} km
