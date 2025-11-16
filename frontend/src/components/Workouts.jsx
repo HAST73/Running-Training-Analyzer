@@ -7,6 +7,7 @@ function Workouts() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [sourceInfo, setSourceInfo] = useState('');
+  const [uploadingGpxId, setUploadingGpxId] = useState(null);
 
   const fetchWorkouts = async () => {
     setLoading(true);
@@ -24,6 +25,38 @@ function Workouts() {
       setError('Nie udało się pobrać treningów.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleGpxUpload = async (event, workoutId) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setUploadingGpxId(workoutId);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const res = await fetch(`http://127.0.0.1:8000/api/workouts/${workoutId}/gpx/`, {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Nie udało się dodać pliku GPX.');
+      }
+
+      await fetchWorkouts();
+      setError('');
+      setSourceInfo('Dołączono plik GPX do treningu.');
+    } catch (e) {
+      console.error(e);
+      setError('Nie udało się dołączyć pliku GPX.');
+    } finally {
+      setUploadingGpxId(null);
+      event.target.value = '';
     }
   };
 
@@ -144,7 +177,7 @@ function Workouts() {
           gap: '3rem',
           justifyContent: 'center',
           margin: '0 auto 1.5em auto',
-          maxWidth: '900px',
+          maxWidth: '1300px',
         }}
       >
         <div>
@@ -224,7 +257,7 @@ function Workouts() {
             marginTop: '2em',
             justifyContent: 'center',
             margin: '0 auto',
-            maxWidth: '900px',
+            maxWidth: '1300px',
           }}
         >
           <div>
@@ -247,24 +280,52 @@ function Workouts() {
                     }}
                   >
                     <div>
-                      <strong>
-                        Bieg{' '}
-                        {(w.performed_at || w.created_at)
-                          ? new Date(w.performed_at || w.created_at).toLocaleDateString('pl-PL')
-                          : ''}
-                      </strong>
+                      <div>
+                        <strong>
+                          Bieg{' '}
+                          {(w.performed_at || w.created_at)
+                            ? new Date(w.performed_at || w.created_at).toLocaleDateString('pl-PL')
+                            : ''}
+                        </strong>
+                      </div>
                       {w.distance_m && (
-                        <span style={{ marginLeft: '0.5em', color: '#555' }}>
+                        <div style={{ color: '#555', marginTop: '0.1em' }}>
                           {(w.distance_m / 1000).toFixed(1)} km
-                        </span>
+                        </div>
+                      )}
+                      {w.gpx_file && (
+                        <div style={{ fontSize: '0.8em', color: '#16a34a', marginTop: '0.1em' }}>
+                          GPX dołączony – można wygenerować widok trasy
+                        </div>
                       )}
                       {w.manual && (
-                        <span style={{ marginLeft: '0.5em', fontSize: '0.8em', color: '#6b7280' }}>
+                        <div style={{ fontSize: '0.8em', color: '#6b7280', marginTop: '0.1em' }}>
                           (ręcznie dodany)
-                        </span>
+                        </div>
                       )}
                     </div>
-                    <button onClick={() => handleDelete(w.id)}>Usuń</button>
+                    <div style={{ display: 'flex', gap: '0.5em' }}>
+                      <label
+                        style={{
+                          padding: '0.4em 0.8em',
+                          fontSize: '0.85em',
+                          whiteSpace: 'nowrap',
+                          background: '#0ea5e9',
+                          color: '#fff',
+                          borderRadius: 4,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {uploadingGpxId === w.id ? 'Wgrywanie...' : (w.gpx_file ? 'Zmień plik GPX' : 'Dołącz plik GPX')}
+                        <input
+                          type="file"
+                          accept=".gpx,application/gpx+xml,application/xml,text/xml"
+                          style={{ display: 'none' }}
+                          onChange={(e) => handleGpxUpload(e, w.id)}
+                        />
+                      </label>
+                      <button onClick={() => handleDelete(w.id)}>Usuń</button>
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -291,24 +352,52 @@ function Workouts() {
                     }}
                   >
                     <div>
-                      <strong>
-                        Bieg{' '}
-                        {(w.performed_at || w.created_at)
-                          ? new Date(w.performed_at || w.created_at).toLocaleDateString('pl-PL')
-                          : ''}
-                      </strong>
+                      <div>
+                        <strong>
+                          Bieg{' '}
+                          {(w.performed_at || w.created_at)
+                            ? new Date(w.performed_at || w.created_at).toLocaleDateString('pl-PL')
+                            : ''}
+                        </strong>
+                      </div>
                       {w.distance_m && (
-                        <span style={{ marginLeft: '0.5em', color: '#555' }}>
+                        <div style={{ color: '#555', marginTop: '0.1em' }}>
                           {(w.distance_m / 1000).toFixed(1)} km
-                        </span>
+                        </div>
+                      )}
+                      {w.gpx_file && (
+                        <div style={{ fontSize: '0.8em', color: '#16a34a', marginTop: '0.1em' }}>
+                          GPX dołączony – można wygenerować widok trasy
+                        </div>
                       )}
                       {w.manual && (
-                        <span style={{ marginLeft: '0.5em', fontSize: '0.8em', color: '#6b7280' }}>
+                        <div style={{ fontSize: '0.8em', color: '#6b7280', marginTop: '0.1em' }}>
                           (ręcznie dodany)
-                        </span>
+                        </div>
                       )}
                     </div>
-                    <button onClick={() => handleDelete(w.id)}>Usuń</button>
+                    <div style={{ display: 'flex', gap: '0.5em' }}>
+                      <label
+                        style={{
+                          padding: '0.4em 0.8em',
+                          fontSize: '0.85em',
+                          whiteSpace: 'nowrap',
+                          background: '#0ea5e9',
+                          color: '#fff',
+                          borderRadius: 4,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {uploadingGpxId === w.id ? 'Wgrywanie...' : (w.gpx_file ? 'Zmień plik GPX' : 'Dołącz plik GPX')}
+                        <input
+                          type="file"
+                          accept=".gpx,application/gpx+xml,application/xml,text/xml"
+                          style={{ display: 'none' }}
+                          onChange={(e) => handleGpxUpload(e, w.id)}
+                        />
+                      </label>
+                      <button onClick={() => handleDelete(w.id)}>Usuń</button>
+                    </div>
                   </li>
                 ))}
               </ul>

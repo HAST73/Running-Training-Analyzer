@@ -11,6 +11,7 @@ class Workout(models.Model):
 	title = models.CharField(max_length=255)
 	distance_m = models.FloatField(blank=True, null=True)
 	duration_ms = models.BigIntegerField(blank=True, null=True)
+	gpx_file = models.FileField(upload_to="gpx/", blank=True, null=True)
 	raw_data = models.JSONField()
 	created_at = models.DateTimeField(auto_now_add=True)
 

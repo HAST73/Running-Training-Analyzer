@@ -16,9 +16,34 @@ def list_workouts(request: HttpRequest) -> JsonResponse:
 	workouts = (
 		Workout.objects.filter(user=request.user)
 		.order_by("-created_at")
-		.values("id", "title", "distance_m", "duration_ms", "created_at", "performed_at", "source", "manual")
+		.values("id", "title", "distance_m", "duration_ms", "created_at", "performed_at", "source", "manual", "gpx_file")
 	)
 	return JsonResponse({"workouts": list(workouts)})
+
+
+@csrf_exempt
+@login_required
+def upload_gpx(request: HttpRequest, workout_id: int) -> JsonResponse:
+	"""Attach a GPX file to an existing workout.
+
+	Front-end sends multipart/form-data with field "file".
+	"""
+	if request.method != "POST":
+		return JsonResponse({"error": "Only POST allowed"}, status=405)
+
+	file = request.FILES.get("file")
+	if not file:
+		return JsonResponse({"error": "No GPX file provided"}, status=400)
+
+	try:
+		workout = Workout.objects.get(id=workout_id, user=request.user)
+	except Workout.DoesNotExist:
+		return JsonResponse({"error": "Workout not found"}, status=404)
+
+	workout.gpx_file = file
+	workout.save(update_fields=["gpx_file"])
+
+	return JsonResponse({"ok": True, "gpx_file": workout.gpx_file.url if workout.gpx_file else None})
 
 
 @csrf_exempt
