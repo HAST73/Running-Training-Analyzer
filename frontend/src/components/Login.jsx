@@ -31,22 +31,42 @@ function Login({ afterAuth }) {
   };
 
   return (
-    <div>
-      <h2>Logowanie</h2>
-      <form onSubmit={onSubmit}>
-        <label>Nazwa użytkownika:
-          <input value={username} onChange={(e) => setUsername(e.target.value)} type="text" name="username" required />
-        </label>
-        <label>Hasło:
-          <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" name="password" required />
-        </label>
-        <button type="submit">Zaloguj się</button>
-      </form>
-      <div style={{ marginTop: '1em' }}>
-        <button onClick={loginWithStrava}>Zaloguj przez Strava</button>
+    <div className="auth-page">
+      <div className="auth-card">
+        <h2>Logowanie</h2>
+        <form onSubmit={onSubmit} className="auth-form">
+          <label>
+            Nazwa użytkownika
+            <input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              type="text"
+              name="username"
+              required
+            />
+          </label>
+          <label>
+            Hasło
+            <input
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              type="password"
+              name="password"
+              required
+            />
+          </label>
+          {error && <p className="auth-error">{error}</p>}
+          <button type="submit" className="btn-primary">
+            Zaloguj się
+          </button>
+        </form>
+        <button onClick={loginWithStrava} className="btn-strava">
+          Zaloguj przez Strava
+        </button>
+        <a href="#register" className="btn-link">
+          Zarejestruj się
+        </a>
       </div>
-      {error && <p style={{ color: 'red' }}>{error}</p>}
-      <p>Nie masz konta? <a href="#register">Zarejestruj się</a></p>
     </div>
   );
 }

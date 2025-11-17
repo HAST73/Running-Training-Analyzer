@@ -39,22 +39,49 @@ function Register({ afterAuth }) {
   };
 
   return (
-    <div>
-      <h2>Rejestracja</h2>
-      <form onSubmit={onSubmit}>
-        <label>Nazwa użytkownika:
-          <input value={username} onChange={(e) => setUsername(e.target.value)} type="text" name="username" required />
-        </label>
-        <label>Email:
-          <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" name="email" required />
-        </label>
-        <label>Hasło:
-          <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" name="password" required />
-        </label>
-        <button type="submit">Zarejestruj się</button>
-      </form>
-      {error && <p style={{ color: 'red' }}>{error}</p>}
-      <p>Masz już konto? <a href="#login">Zaloguj się</a></p>
+    <div className="auth-page">
+      <div className="auth-card">
+        <h2>Rejestracja</h2>
+        <form onSubmit={onSubmit} className="auth-form">
+          <label>
+            Nazwa użytkownika
+            <input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              type="text"
+              name="username"
+              required
+            />
+          </label>
+          <label>
+            Email
+            <input
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              type="email"
+              name="email"
+              required
+            />
+          </label>
+          <label>
+            Hasło
+            <input
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              type="password"
+              name="password"
+              required
+            />
+          </label>
+          {error && <p className="auth-error">{error}</p>}
+          <button type="submit" className="btn-primary">
+            Zarejestruj się
+          </button>
+        </form>
+        <a href="#login" className="btn-link">
+          Zaloguj się
+        </a>
+      </div>
     </div>
   );
 }
