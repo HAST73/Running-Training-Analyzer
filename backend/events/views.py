@@ -1,7 +1,7 @@
 from django.http import JsonResponse, HttpRequest
 from django.views.decorators.csrf import csrf_exempt
 
-from events_scraper import fetch_poland_events
+from events_scraper import fetch_poland_events, fetch_world_events
 
 
 @csrf_exempt
@@ -18,12 +18,13 @@ def list_events(request: HttpRequest) -> JsonResponse:
 	world = []
 	limit_param = request.GET.get("limit")
 	try:
-		limit = int(limit_param) if limit_param is not None else 200
+		limit = int(limit_param) if limit_param is not None else 100
 	except (TypeError, ValueError):
-		limit = 200
+		limit = 100
 
 	try:
 		poland = fetch_poland_events(limit=limit)
+		world = fetch_world_events(limit=limit)
 	except Exception as exc:  # pragma: no cover - defensive
 		return JsonResponse({"error": f"Failed to fetch events: {exc}"}, status=502)
 

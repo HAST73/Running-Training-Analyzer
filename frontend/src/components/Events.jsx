@@ -1,5 +1,25 @@
 import React, { useEffect, useState } from 'react';
 
+const CLEAN_MARKERS = [
+  'Kliknij tutaj',
+  'ZAKRES WYSZUKIWANIA',
+  'Dzień:',
+  'Dzien:',
+  '->'
+];
+
+const cleanEventName = (name = '') => {
+  let result = name;
+  CLEAN_MARKERS.forEach((marker) => {
+    const idx = result.indexOf(marker);
+    if (idx !== -1) {
+      result = result.slice(0, idx).trim();
+    }
+  });
+  return result;
+};
+
+
 function Events() {
   const [polandEvents, setPolandEvents] = useState([]);
   const [worldEvents, setWorldEvents] = useState([]);
@@ -8,12 +28,14 @@ function Events() {
   const [fromDate, setFromDate] = useState('');
   const [sortByCity, setSortByCity] = useState(false);
   const [search, setSearch] = useState('');
+  const [worldFromDate, setWorldFromDate] = useState('');
+  const [worldCountry, setWorldCountry] = useState('');
 
   useEffect(() => {
     const fetchEvents = async () => {
       setLoading(true);
       try {
-        const res = await fetch('http://127.0.0.1:8000/api/events/?limit=200', {
+        const res = await fetch('http://127.0.0.1:8000/api/events/?limit=100', {
           credentials: 'include',
         });
         const data = await res.json();
@@ -67,12 +89,40 @@ function Events() {
     return filtered;
   };
 
+  const applyWorldFilters = (items) => {
+    let filtered = [...items];
+
+    if (worldFromDate) {
+      const from = new Date(worldFromDate);
+      filtered = filtered.filter((ev) => {
+        if (!ev.date) return false;
+        const d = new Date(ev.date);
+        return d >= from;
+      });
+    }
+
+    if (worldCountry.trim()) {
+      const q = worldCountry.trim().toLowerCase();
+      filtered = filtered.filter((ev) => {
+        const name = (ev.name || '').toLowerCase();
+        const city = (ev.city || '').toLowerCase();
+        // kraj często jest na początku nazwy ("Wlochy ...", "Hiszpania ...")
+        return name.includes(q) || city.includes(q);
+      });
+    }
+
+    return filtered;
+  };
+
   const renderList = (items) => {
     if (!items.length) {
       return <p style={{ fontSize: '0.9em', color: '#555' }}>Brak nadchodzących biegów.</p>;
     }
 
-    const prepared = applyFilters(items);
+    const prepared = applyFilters(items).map((ev) => ({
+      ...ev,
+      name: cleanEventName(ev.name),
+    }));
 
     if (!prepared.length) {
       return <p style={{ fontSize: '0.9em', color: '#555' }}>Brak nadchodzących biegów.</p>;
@@ -116,6 +166,58 @@ function Events() {
     );
   };
 
+  const renderWorldList = (items) => {
+    if (!items.length) {
+      return <p style={{ fontSize: '0.9em', color: '#555' }}>Brak nadchodzących biegów.</p>;
+    }
+
+    const prepared = applyWorldFilters(items).map((ev) => ({
+      ...ev,
+      name: cleanEventName(ev.name),
+    }));
+
+    if (!prepared.length) {
+      return <p style={{ fontSize: '0.9em', color: '#555' }}>Brak nadchodzących biegów.</p>;
+    }
+
+    return (
+      <ul style={{ listStyle: 'none', padding: 0, marginTop: '0.5em' }}>
+        {prepared.map((ev, idx) => (
+          <li
+            key={idx}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '120px 120px minmax(0, 1fr)',
+              gap: '2.5em',
+              padding: '0.4em 0',
+              borderBottom: '1px solid #eee',
+              alignItems: 'center',
+            }}
+          >
+            <span style={{ fontWeight: 500 }}>
+              {ev.date ? new Date(ev.date).toLocaleDateString('pl-PL') : ''}
+            </span>
+            <span style={{ color: '#111827' }}>{ev.city}</span>
+            <span style={{ fontWeight: 500 }}>
+              {ev.url ? (
+                <a
+                  href={ev.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ color: '#1d4ed8', textDecoration: 'none' }}
+                >
+                  {ev.name}
+                </a>
+              ) : (
+                <span style={{ color: '#1d4ed8' }}>{ev.name}</span>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+    );
+  };
+
   return (
     <section>
       <h2 style={{ textAlign: 'center', marginBottom: '1.5em' }}>Wydarzenia biegowe</h2>
@@ -130,7 +232,7 @@ function Events() {
           style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(2, minmax(320px, 1fr))',
-            gap: '3rem',
+            gap: '5rem',
             justifyContent: 'center',
             margin: '0 auto',
             maxWidth: '1100px',
@@ -173,7 +275,28 @@ function Events() {
 
           <div>
             <h3>Świat</h3>
-            {renderList(worldEvents)}
+            <div style={{ marginBottom: '0.75em', fontSize: '0.85em' }}>
+              <label style={{ display: 'block', marginBottom: '0.25em' }}>
+                Data od:
+                <input
+                  type="date"
+                  value={worldFromDate}
+                  onChange={(e) => setWorldFromDate(e.target.value)}
+                  style={{ marginLeft: '0.5em' }}
+                />
+              </label>
+              <label style={{ display: 'block', marginBottom: '0.25em' }}>
+                Kraj (według listy na stronie):
+                <input
+                  type="text"
+                  value={worldCountry}
+                  onChange={(e) => setWorldCountry(e.target.value)}
+                  placeholder="np. Włochy, ITA, USA..."
+                  style={{ width: '100%', marginTop: '0.25em' }}
+                />
+              </label>
+            </div>
+            {renderWorldList(worldEvents)}
           </div>
         </div>
       )}
