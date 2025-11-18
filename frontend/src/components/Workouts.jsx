@@ -65,38 +65,35 @@ function Workouts() {
   }, []);
 
   const handleAdidasFileChange = async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  const file = event.target.files?.[0];
+  if (!file) return;
 
-    try {
-      const text = await file.text();
-      const parsed = JSON.parse(text);
+  try {
+    const formData = new FormData();
+    formData.append('file', file); // NAZWA "file" jest ważna – backend jej szuka
 
-      const res = await fetch('http://127.0.0.1:8000/api/workouts/upload/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify(parsed),
-      });
+    const res = await fetch('http://127.0.0.1:8000/api/workouts/upload/', {
+      method: 'POST',
+      credentials: 'include',
+      body: formData,                 // <- bez ręcznego ustawiania Content-Type
+    });
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || 'Błąd przy imporcie treningu.');
-      }
-
-      await fetchWorkouts();
-      setError('');
-      setSourceInfo('Zaimportowano trening z Adidas Running (.json).');
-    } catch (e) {
-      console.error(e);
-      setError('Nie udało się zaimportować pliku Adidas Running. Upewnij się, że to poprawny JSON.');
-    } finally {
-      // reset input, żeby można było wgrać ten sam plik ponownie
-      event.target.value = '';
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Błąd przy imporcie treningu.');
     }
-  };
+
+    await fetchWorkouts();
+    setError('');
+    setSourceInfo('Zaimportowano trening z Adidas Running (.json).');
+  } catch (e) {
+    console.error(e);
+    setError('Nie udało się zaimportować pliku Adidas Running. Upewnij się, że to poprawny JSON.');
+  } finally {
+    event.target.value = '';
+  }
+};
+
 
   const handleStravaFileChange = async (event) => {
     const file = event.target.files?.[0];

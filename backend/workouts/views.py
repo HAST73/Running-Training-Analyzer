@@ -1,4 +1,5 @@
 import json
+import math
 from io import BytesIO
 
 from django.contrib.auth.decorators import login_required
@@ -68,9 +69,7 @@ def last_workout(request: HttpRequest) -> JsonResponse:
     elevation_gain = None
     if isinstance(raw, dict):
         calories = raw.get("calories") or raw.get("total_calories")
-        elevation_gain = raw.get("elevation_gain") or raw.get(
-            "total_elevation_gain"
-        )
+        elevation_gain = raw.get("elevation_gain") or raw.get("total_elevation_gain")
 
     workout_data["calories"] = calories
     workout_data["elevation_gain"] = elevation_gain
@@ -139,11 +138,7 @@ def weekly_summary(request: HttpRequest) -> JsonResponse:
                 if key in buckets:
                     buckets[key] += float(w.distance_m)
 
-        # Zwracamy w kolejności rosnącej (od najstarszego do najnowszego)
-        items = [
-            {"label": key, "distance_m": dist}
-            for key, dist in buckets.items()
-        ]
+        items = [{"label": key, "distance_m": dist} for key, dist in buckets.items()]
         total_distance = sum(buckets.values())
 
     # --------- BUCKET: TYGODNIE (ostatnie 30 dni) ---------
@@ -197,7 +192,6 @@ def weekly_summary(request: HttpRequest) -> JsonResponse:
         total_distance = sum(dist_by_day.values())
 
     return JsonResponse({"items": items, "total_distance_m": total_distance})
-
 
 
 @csrf_exempt
@@ -380,64 +374,257 @@ def import_strava_workouts(request: HttpRequest) -> JsonResponse:
 @csrf_exempt
 @login_required
 def upload_workout(request: HttpRequest) -> JsonResponse:
-    """Upload workout from Adidas JSON or Strava FIT.
+    """
+    Upload workout from Adidas JSON or Strava FIT.
 
-    Front-end should either:
-    - send JSON body (Adidas export) with Content-Type application/json
-    - send multipart/form-data with a .fit file (Strava)
+    Front-end może:
+    - wysłać JSON w body (Content-Type: application/json)  -> Adidas
+    - wysłać multipart/form-data z plikiem .json           -> Adidas
+    - wysłać multipart/form-data z plikiem .fit            -> Strava
     """
     if request.method != "POST":
         return JsonResponse({"error": "Only POST allowed"}, status=405)
 
     content_type = request.content_type or ""
+
+    # 1) Czysty JSON w body (Adidas)
     if content_type.startswith("application/json"):
-        # Adidas JSON
         try:
             body = request.body.decode("utf-8")
             data = json.loads(body)
         except Exception:
             return JsonResponse({"error": "Invalid JSON body"}, status=400)
 
+        # Rozpoznaj typ ładunku: Adidas activity z features vs lista punktów GPS
+        if _is_trackpoints_payload(data):
+            return _handle_trackpoints_json(request, data)
         return _handle_adidas_json(request, data)
 
-    elif content_type.startswith("multipart/form-data"):
-        # Expecting a FIT file under "file" field
-        fit_file = request.FILES.get("file")
-        if not fit_file:
-            return JsonResponse({"error": "No FIT file provided"}, status=400)
+    # 2) multipart/form-data – plik (Adidas JSON albo Strava FIT)
+    if content_type.startswith("multipart/form-data"):
+        file = request.FILES.get("file")
+        if not file:
+            return JsonResponse({"error": "No file provided"}, status=400)
 
+        # wczytujemy zawartość tylko raz
+        content = file.read()
+
+        # Proste logowanie diagnostyczne formatu (tylko na czas debugowania)
         try:
-            fit_bytes = fit_file.read()
-            fit = FitFile(BytesIO(fit_bytes))
-            return _handle_strava_fit(request, fit, original_name=fit_file.name)
-        except Exception as exc:  # pragma: no cover - defensive
+            raw_debug = content.decode("utf-8", errors="ignore")
+            # ucinamy, żeby nie spamować logów
+            snippet = raw_debug[:500]
+            print("[UPLOAD_WORKOUT] Raw file snippet:", snippet)
+        except Exception:
+            pass
+
+        # --- spróbuj jako Adidas JSON / lista punktów ---
+        try:
+            raw = content.decode("utf-8")
+            data = json.loads(raw)
+            if _is_trackpoints_payload(data):
+                return _handle_trackpoints_json(request, data)
+            return _handle_adidas_json(request, data)
+        except Exception:
+            pass  # nie wygląda jak poprawny JSON Adidasa
+
+        # --- spróbuj jako FIT (Strava) ---
+        try:
+            fit = FitFile(BytesIO(content))
+            return _handle_strava_fit(request, fit, original_name=file.name)
+        except Exception as exc:
             return JsonResponse(
-                {"error": f"Invalid FIT file: {exc}"}, status=400
+                {
+                    "error": "Unsupported or invalid file (expected Adidas JSON or Strava FIT)",
+                    "details": str(exc),
+                },
+                status=400,
             )
 
-    else:
+    # 3) fallback – jeśli body wygląda jak JSON, potraktuj jak Adidas
+    try:
+        body = request.body.decode("utf-8")
+        data = json.loads(body)
+        return _handle_adidas_json(request, data)
+    except Exception:
         return JsonResponse({"error": "Unsupported content type"}, status=400)
 
 
-def _handle_adidas_json(request: HttpRequest, data: dict) -> JsonResponse:
-    external_id = data.get("id")
-    duration_ms = data.get("duration") or data.get("duration_ms")
+# ---------- ADIDAS JSON PARSER (POPRAWIONY) ----------
+
+
+def _find_adidas_activity(payload):
+    """
+    Szuka w dowolnej strukturze (dict / list) pierwszego obiektu,
+    który ma klucz "features" – to zazwyczaj pojedynczy trening.
+    """
+    if isinstance(payload, dict):
+        if "features" in payload:
+            return payload
+        for value in payload.values():
+            found = _find_adidas_activity(value)
+            if found is not None:
+                return found
+    elif isinstance(payload, list):
+        for item in payload:
+            found = _find_adidas_activity(item)
+            if found is not None:
+                return found
+    return None
+
+
+
+def _is_trackpoints_payload(data) -> bool:
+    """Heurystycznie sprawdza, czy to lista punktów GPS (lat/lon/timestamp).
+
+    Akceptujemy listę słowników zawierających przynajmniej 'latitude' i 'longitude'
+    lub 'timestamp'.
+    """
+    if isinstance(data, list) and data:
+        first = data[0]
+        if isinstance(first, dict):
+            keys = set(first.keys())
+            has_coords = {"latitude", "longitude"}.issubset(keys)
+            has_time = "timestamp" in keys
+            return has_coords or has_time
+    return False
+
+
+def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    R = 6371000.0
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    c = 2 * math.asin(min(1.0, math.sqrt(a)))
+    return R * c
+
+
+def _handle_trackpoints_json(request: HttpRequest, points) -> JsonResponse:
+    """Tworzy Workout na podstawie listy punktów GPS (Adidas – surowe trackpoints).
+
+    Oczekuje listy słowników z polami: latitude, longitude, timestamp (ms).
+    Dystans liczony z par kolejnych punktów (haversine), czas z zakresu timestampów.
+    """
+    if not isinstance(points, list) or len(points) < 2:
+        return JsonResponse({"error": "Za mało punktów śladu GPS"}, status=400)
+
+    # Filtrujemy punkty z wymaganymi polami i sortujemy po czasie, jeśli dostępny
+    cleaned = []
+    for p in points:
+        if not isinstance(p, dict):
+            continue
+        lat = p.get("latitude")
+        lon = p.get("longitude")
+        ts = p.get("timestamp")
+        if lat is None or lon is None:
+            continue
+        cleaned.append({"lat": float(lat), "lon": float(lon), "ts": ts})
+
+    if len(cleaned) < 2:
+        return JsonResponse({"error": "Brak wystarczających danych GPS"}, status=400)
+
+    cleaned.sort(key=lambda x: (x["ts"] is None, x["ts"]))  # None na końcu
+
+    total_m = 0.0
+    prev = cleaned[0]
+    for cur in cleaned[1:]:
+        total_m += _haversine_m(prev["lat"], prev["lon"], cur["lat"], cur["lon"])
+        prev = cur
+
+    # Czas trwania – jeśli mamy znaczniki czasu (ms od epoki)
+    start_ts = next((c["ts"] for c in cleaned if isinstance(c["ts"], (int, float))), None)
+    end_ts = next((c["ts"] for c in reversed(cleaned) if isinstance(c["ts"], (int, float))), None)
+    duration_ms = None
+    performed_at = None
+    if isinstance(start_ts, (int, float)) and isinstance(end_ts, (int, float)) and end_ts >= start_ts:
+        duration_ms = int(end_ts - start_ts)
+        from datetime import datetime, timezone as dt_timezone
+        performed_at = datetime.fromtimestamp(start_ts / 1000.0, tz=dt_timezone.utc)
+
+    title = "Trening"
+    if total_m:
+        title = f"Trening {total_m/1000.0:.1f} km"
+
+    workout = Workout.objects.create(
+        user=request.user,
+        external_id=None,
+        source="adidas",
+        manual=True,
+        performed_at=performed_at,
+        title=title,
+        distance_m=float(total_m) or None,
+        duration_ms=duration_ms,
+        raw_data={
+            "source": "adidas_trackpoints",
+            "points_count": len(cleaned),
+        },
+    )
+
+    return JsonResponse(
+        {"id": workout.id, "title": workout.title, "source": workout.source},
+        status=201,
+    )
+
+
+def _handle_adidas_json(request: HttpRequest, data) -> JsonResponse:
+    """
+    Tworzy Workout z Adidas Running JSON.
+
+    Obsługuje zarówno pojedynczy obiekt, jak i listę obiektów
+    (np. eksport kilku treningów). Bierzemy pierwszy obiekt z
+    polem "features".
+    """
+    # Jeśli dostaliśmy listę, spróbujmy znaleźć w niej pierwszy obiekt z features
+    if isinstance(data, list):
+        candidate = _find_adidas_activity(data)
+        if candidate is None:
+            return JsonResponse(
+                {"error": "Nie znaleziono danych treningu (brak pola 'features')."},
+                status=400,
+            )
+        activity = candidate
+    elif isinstance(data, dict):
+        # Pojedynczy obiekt – jeśli ma features, użyj go wprost,
+        # jeśli nie, spróbuj poszukać głębiej
+        if "features" in data:
+            activity = data
+        else:
+            candidate = _find_adidas_activity(data)
+            if candidate is None:
+                return JsonResponse(
+                    {"error": "Nie znaleziono danych treningu (brak pola 'features')."},
+                    status=400,
+                )
+            activity = candidate
+    else:
+        return JsonResponse(
+            {"error": "Nieprawidłowy format danych Adidas (oczekiwano JSONa)."},
+            status=400,
+        )
+
+    external_id = activity.get("id")
+    duration_ms = activity.get("duration") or activity.get("duration_ms")
 
     distance_m = None
     performed_at = None
-    features = data.get("features") or []
+    features = activity.get("features") or []
+
+    # dystans
     for f in features:
         if f.get("type") == "track_metrics":
             attrs = f.get("attributes") or {}
             distance_m = attrs.get("distance")
             break
+
+    # data rozpoczęcia
     for f in features:
         if f.get("type") == "initial_values":
             attrs = f.get("attributes") or {}
             start_ms = attrs.get("start_time")
             if start_ms is not None:
                 from datetime import datetime, timezone as dt_timezone
-
                 performed_at = datetime.fromtimestamp(
                     start_ms / 1000.0, tz=dt_timezone.utc
                 )
@@ -457,13 +644,17 @@ def _handle_adidas_json(request: HttpRequest, data: dict) -> JsonResponse:
         title=title,
         distance_m=distance_m,
         duration_ms=duration_ms,
-        raw_data=data,
+        raw_data=activity,
     )
 
     return JsonResponse(
         {"id": workout.id, "title": workout.title, "source": workout.source},
         status=201,
     )
+
+
+
+# ---------- STRAVA FIT PARSER (bez zmian merytorycznych) ----------
 
 
 def _handle_strava_fit(

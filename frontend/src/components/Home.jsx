@@ -23,6 +23,7 @@ function Home() {
   const [goalPeriod, setGoalPeriod] = useState('month');       // week/month/year
   const [goalInput, setGoalInput] = useState('100');
   const [goalPeriodInput, setGoalPeriodInput] = useState('month');
+  const [goalSummary, setGoalSummary] = useState(null); // niezależny od dolnego widgetu
 
   const fetchWeekly = async (currentPeriod = '7d') => {
     try {
@@ -40,6 +41,23 @@ function Home() {
     } catch (e) {
       console.error(e);
       setWeekly(null);
+    }
+  };
+
+  const fetchGoalSummary = async (goalPeriodValue = 'month') => {
+    // niezależne pobranie dla ringa celu
+    const p = goalPeriodValue === 'week' ? '7d' : goalPeriodValue === 'month' ? '30d' : 'year';
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:8000/api/workouts/weekly_summary/?period=${p}`,
+        { credentials: 'include' }
+      );
+      if (!res.ok) throw new Error('Błąd pobierania celu');
+      const data = await res.json();
+      setGoalSummary(data);
+    } catch (e) {
+      console.error(e);
+      setGoalSummary(null);
     }
   };
 
@@ -70,29 +88,25 @@ function Home() {
         if (!res.ok) return;
         const data = await res.json();
         const all = data.workouts || [];
-        setRecentWorkouts(all.slice(0, 3));
+        // Sortuj po "realnej" dacie – preferuj performed_at, potem created_at (malejąco)
+        const sorted = [...all].sort((a, b) => {
+          const da = new Date(a.performed_at || a.created_at || 0).getTime();
+          const db = new Date(b.performed_at || b.created_at || 0).getTime();
+          return db - da;
+        });
+        setRecentWorkouts(sorted.slice(0, 3));
       } catch (e) {
         console.error(e);
       }
     };
 
-    // domyślnie bierzemy 7 dni
+    // domyślnie: wykres 7 dni, ring: miesiąc
     fetchLastWorkout();
     fetchWeekly('7d');
     setPeriod('7d');
+    fetchGoalSummary('month');
     fetchRecent();
   }, []);
-
-  const syncGoalPeriodWithWeekly = (gp) => {
-    // mapowanie okresu celu -> param "period" w API
-    let p = '7d';
-    if (gp === 'week') p = '7d';
-    else if (gp === 'month') p = '30d';
-    else if (gp === 'year') p = 'year';
-
-    setPeriod(p);
-    fetchWeekly(p);
-  };
 
   const handleGoalSubmit = (e) => {
     e.preventDefault();
@@ -100,13 +114,14 @@ function Home() {
     if (!isNaN(parsed) && parsed > 0) {
       setGoalDistance(parsed);
       setGoalPeriod(goalPeriodInput);
-      // po zmianie celu zsynchronizuj zakres z wykresem / ringiem
-      syncGoalPeriodWithWeekly(goalPeriodInput);
+      // od teraz ring pobiera dane niezależnie
+      fetchGoalSummary(goalPeriodInput);
     }
   };
 
-  const totalThisPeriodKmNumber = weekly ? weekly.total_distance_m / 1000 : 0;
-  const totalThisPeriodKm = totalThisPeriodKmNumber.toFixed(1);
+  const totalThisPeriodM = goalSummary ? goalSummary.total_distance_m : 0;
+  const totalThisPeriodKmNumber = totalThisPeriodM / 1000;
+  const totalThisPeriodKm = totalThisPeriodKmNumber.toFixed(3);
   const goalProgress =
     goalDistance > 0 ? Math.min(totalThisPeriodKmNumber / goalDistance, 1) : 0;
   const remainingKm = goalDistance - totalThisPeriodKmNumber;
@@ -243,8 +258,8 @@ function Home() {
                     style={{ '--goal-progress': goalProgress }}
                   />
                   <div className="goal-ring-center">
-                    <div className="goal-ring-value">{totalThisPeriodKm}</div>
-                    <div className="goal-ring-label">km w tym okresie</div>
+                    <div className="goal-ring-value">{totalThisPeriodM.toFixed(0)}</div>
+                    <div className="goal-ring-label">m w tym okresie</div>
                   </div>
                 </div>
 
@@ -290,8 +305,8 @@ function Home() {
                 <span className="home-last-workout-label">{periodHeader}</span>
                 <span className="home-weekly-total">
                   {weekly
-                    ? `${(weekly.total_distance_m / 1000).toFixed(1)} km`
-                    : '0 km'}
+                    ? `${weekly.total_distance_m.toFixed(0)} m`
+                    : '0 m'}
                 </span>
               </div>
 
@@ -336,51 +351,80 @@ function Home() {
                 </button>
               </div>
 
+              {/* Wykres z osią Y (skala do maksimum w okresie) */}
               <div className="home-weekly-chart">
-                {weekly &&
-                  weekly.items &&
-                  weekly.items.map((it) => {
-                    const km = it.distance_m / 1000;
-                    const height = weekly.total_distance_m
-                      ? (km / (weekly.total_distance_m / 1000)) * 100
-                      : 0;
+                {(() => {
+                  const items = (weekly && weekly.items) || [];
+                  const maxM = items.reduce((mx, it) => {
+                    const v = Number(it.distance_m) || 0;
+                    return v > mx ? v : mx;
+                  }, 0);
 
-                    let label;
+                  const ticks = maxM > 0 ? [1, 0.75, 0.5, 0.25].map((r) => r * maxM) : [];
 
+                  const formatTick = (m) => {
+                    if (m >= 1000) return `${(m / 1000).toFixed(0)}k m`;
+                    return `${Math.round(m)} m`;
+                  };
+
+                  const labelFor = (it) => {
                     if (period === 'year') {
-                      // it.label = "YYYY-MM"  -> miesiąc
-                      label = new Date(it.label + '-01').toLocaleDateString('pl-PL', {
+                      return new Date(it.label + '-01').toLocaleDateString('pl-PL', {
                         month: 'short',
                       });
                     } else if (period === '30d') {
-                      // it.label = "YYYY-MM-DD" (poniedziałek tygodnia) -> np. "01 sty"
-                      label = new Date(it.label).toLocaleDateString('pl-PL', {
+                      return new Date(it.label).toLocaleDateString('pl-PL', {
                         day: '2-digit',
                         month: 'short',
                       });
-                    } else {
-                      // 7 dni – etykieta = dzień tygodnia
-                      label = new Date(it.label).toLocaleDateString('pl-PL', {
-                        weekday: 'short',
-                      });
                     }
+                    return new Date(it.label).toLocaleDateString('pl-PL', {
+                      weekday: 'short',
+                    });
+                  };
 
-
-                    return (
-                      <div
-                        key={it.label}
-                        className="home-weekly-bar-wrapper"
-                      >
-                        <div
-                          className="home-weekly-bar"
-                          style={{
-                            height: `${Math.max(height, km > 0 ? 18 : 4)}%`,
-                          }}
-                        />
-                        <span className="home-weekly-bar-label">{label}</span>
+                  return (
+                    <>
+                      {/* Oś Y */}
+                      <div className="home-weekly-yaxis">
+                        <span>{maxM ? formatTick(maxM) : ''}</span>
+                        <span>{maxM ? formatTick(ticks[1]) : ''}</span>
+                        <span>{maxM ? formatTick(ticks[2]) : ''}</span>
+                        <span>{maxM ? formatTick(ticks[3]) : ''}</span>
+                        <span>0</span>
                       </div>
-                    );
-                  })}
+
+                      {/* Siatka */}
+                      <div className="home-weekly-grid">
+                        {[1, 0.75, 0.5, 0.25].map((r) => (
+                          <div
+                            key={r}
+                            className="home-weekly-grid-line"
+                            style={{ top: `${(1 - r) * 100}%` }}
+                          />
+                        ))}
+                      </div>
+
+                      {/* Kolumny */}
+                      <div className="home-weekly-bars">
+                        {items.map((it) => {
+                          const m = Number(it.distance_m) || 0;
+                          const height = maxM > 0 ? (m / maxM) * 100 : 0;
+                          const label = labelFor(it);
+                          return (
+                            <div key={it.label} className="home-weekly-bar-wrapper">
+                              <div
+                                className="home-weekly-bar"
+                                style={{ height: `${Math.max(height, m > 0 ? 6 : 2)}%` }}
+                              />
+                              <span className="home-weekly-bar-label">{label}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             </div>
           </div>
