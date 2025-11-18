@@ -3,6 +3,7 @@ import Home from './components/Home';
 import Login from './components/Login';
 import Register from './components/Register';
 import Workouts from './components/Workouts';
+import WorkoutAnalysis from './components/WorkoutAnalysis';
 import Social from './components/Social';
 import Events from './components/Events';
 
@@ -85,6 +86,7 @@ function App() {
         {authed && route === '#workouts' && <Workouts />}
         {authed && route === '#social' && <Social />}
         {authed && route === '#events' && <Events />}
+        {authed && route.startsWith('#analysis') && <WorkoutAnalysis />}
         {authed && (route === '#home' || route === '') && <Home />}
       </div>
     </div>

@@ -339,7 +339,7 @@ function Workouts() {
                             textAlign: 'center',
                           }}
                           type="button"
-                          // TODO: Hook up to analysis view in a future step
+                          onClick={() => { window.location.hash = `#analysis?id=${w.id}`; }}
                         >
                           Szczegóły biegu
                         </button>
@@ -433,7 +433,7 @@ function Workouts() {
                             textAlign: 'center',
                           }}
                           type="button"
-                          // TODO: Hook up to analysis view in a future step
+                          onClick={() => { window.location.hash = `#analysis?id=${w.id}`; }}
                         >
                           Szczegóły biegu
                         </button>
