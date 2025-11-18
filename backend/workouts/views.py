@@ -5,6 +5,7 @@ from io import BytesIO
 from django.contrib.auth.decorators import login_required
 from django.db.models import Q
 from django.http import JsonResponse, HttpRequest
+from django.core.files.storage import default_storage
 from django.views.decorators.csrf import csrf_exempt
 
 from fitparse import FitFile
@@ -15,22 +16,26 @@ from .models import Workout
 
 @login_required
 def list_workouts(request: HttpRequest) -> JsonResponse:
-    workouts = (
-        Workout.objects.filter(user=request.user)
-        .order_by("-created_at")
-        .values(
-            "id",
-            "title",
-            "distance_m",
-            "duration_ms",
-            "created_at",
-            "performed_at",
-            "source",
-            "manual",
-            "gpx_file",
+    qs = Workout.objects.filter(user=request.user).order_by("-created_at")
+    items = []
+    for w in qs:
+        # Keep "gpx_file" in payload for frontend truthiness checks
+        has_gpx = bool(w.gpx_data) or bool(w.gpx_file)
+        items.append(
+            {
+                "id": w.id,
+                "title": w.title,
+                "distance_m": w.distance_m,
+                "duration_ms": w.duration_ms,
+                "created_at": w.created_at,
+                "performed_at": w.performed_at,
+                "source": w.source,
+                "manual": w.manual,
+                # expose boolean for compatibility
+                "gpx_file": has_gpx,
+            }
         )
-    )
-    return JsonResponse({"workouts": list(workouts)})
+    return JsonResponse({"workouts": items})
 
 
 @login_required
@@ -213,12 +218,31 @@ def upload_gpx(request: HttpRequest, workout_id: int) -> JsonResponse:
     except Workout.DoesNotExist:
         return JsonResponse({"error": "Workout not found"}, status=404)
 
-    workout.gpx_file = file
-    workout.save(update_fields=["gpx_file"])
+    # Remove old stored file if present and clear FileField
+    if workout.gpx_file:
+        try:
+            if workout.gpx_file.name:
+                default_storage.delete(workout.gpx_file.name)
+        except Exception:
+            pass
+        workout.gpx_file = None
 
-    return JsonResponse(
-        {"ok": True, "gpx_file": workout.gpx_file.url if workout.gpx_file else None}
-    )
+    # Store GPX inline in DB
+    content = file.read()
+    workout.gpx_name = getattr(file, "name", None)
+    workout.gpx_mime = getattr(file, "content_type", None) or "application/gpx+xml"
+    workout.gpx_size = len(content) if content is not None else None
+    workout.gpx_data = content
+    workout.save(update_fields=[
+        "gpx_file",
+        "gpx_name",
+        "gpx_mime",
+        "gpx_size",
+        "gpx_data",
+    ])
+
+    # Return boolean for frontend compatibility
+    return JsonResponse({"ok": True, "gpx_file": True})
 
 
 @csrf_exempt
