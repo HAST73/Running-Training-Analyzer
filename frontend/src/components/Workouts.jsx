@@ -301,27 +301,49 @@ function Workouts() {
                         </div>
                       )}
                     </div>
-                    <div style={{ display: 'flex', gap: '0.5em' }}>
-                      <label
-                        style={{
-                          padding: '0.4em 0.8em',
-                          fontSize: '0.85em',
-                          whiteSpace: 'nowrap',
-                          background: '#0ea5e9',
-                          color: '#fff',
-                          borderRadius: 4,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        {uploadingGpxId === w.id ? 'Wgrywanie...' : (w.gpx_file ? 'Zmień plik GPX' : 'Dołącz plik GPX')}
-                        <input
-                          type="file"
-                          accept=".gpx,application/gpx+xml,application/xml,text/xml"
-                          style={{ display: 'none' }}
-                          onChange={(e) => handleGpxUpload(e, w.id)}
-                        />
-                      </label>
-                      <button onClick={() => handleDelete(w.id)}>Usuń</button>
+                    <div style={{ flex: '0 0 auto', minWidth: 220 }}>
+                      <div style={{ display: 'flex', gap: '0.5em' }}>
+                        <label
+                          style={{
+                            padding: '0.4em 0.8em',
+                            fontSize: '0.85em',
+                            whiteSpace: 'nowrap',
+                            background: '#0ea5e9',
+                            color: '#fff',
+                            borderRadius: 4,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {uploadingGpxId === w.id ? 'Wgrywanie...' : (w.gpx_file ? 'Zmień plik GPX' : 'Dołącz plik GPX')}
+                          <input
+                            type="file"
+                            accept=".gpx,application/gpx+xml,application/xml,text/xml"
+                            style={{ display: 'none' }}
+                            onChange={(e) => handleGpxUpload(e, w.id)}
+                          />
+                        </label>
+                        <button onClick={() => handleDelete(w.id)}>Usuń</button>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'center', marginTop: '0.5em' }}>
+                        <button
+                          style={{
+                            width: '70%',
+                            marginTop: '0.6em',
+                            background: '#0f172a',
+                            color: '#38bdf8',
+                            padding: '0.45em 0.9em',
+                            borderRadius: 6,
+                            fontSize: '0.9em',
+                            border: '1px solid #334155',
+                            cursor: 'pointer',
+                            textAlign: 'center',
+                          }}
+                          type="button"
+                          // TODO: Hook up to analysis view in a future step
+                        >
+                          Szczegóły biegu
+                        </button>
+                      </div>
                     </div>
                   </li>
                 ))}
@@ -373,27 +395,49 @@ function Workouts() {
                         </div>
                       )}
                     </div>
-                    <div style={{ display: 'flex', gap: '0.5em' }}>
-                      <label
-                        style={{
-                          padding: '0.4em 0.8em',
-                          fontSize: '0.85em',
-                          whiteSpace: 'nowrap',
-                          background: '#0ea5e9',
-                          color: '#fff',
-                          borderRadius: 4,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        {uploadingGpxId === w.id ? 'Wgrywanie...' : (w.gpx_file ? 'Zmień plik GPX' : 'Dołącz plik GPX')}
-                        <input
-                          type="file"
-                          accept=".gpx,application/gpx+xml,application/xml,text/xml"
-                          style={{ display: 'none' }}
-                          onChange={(e) => handleGpxUpload(e, w.id)}
-                        />
-                      </label>
-                      <button onClick={() => handleDelete(w.id)}>Usuń</button>
+                    <div style={{ flex: '0 0 auto', minWidth: 220 }}>
+                      <div style={{ display: 'flex', gap: '0.5em' }}>
+                        <label
+                          style={{
+                            padding: '0.4em 0.8em',
+                            fontSize: '0.85em',
+                            whiteSpace: 'nowrap',
+                            background: '#0ea5e9',
+                            color: '#fff',
+                            borderRadius: 4,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {uploadingGpxId === w.id ? 'Wgrywanie...' : (w.gpx_file ? 'Zmień plik GPX' : 'Dołącz plik GPX')}
+                          <input
+                            type="file"
+                            accept=".gpx,application/gpx+xml,application/xml,text/xml"
+                            style={{ display: 'none' }}
+                            onChange={(e) => handleGpxUpload(e, w.id)}
+                          />
+                        </label>
+                        <button onClick={() => handleDelete(w.id)}>Usuń</button>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'center', marginTop: '0.5em' }}>
+                        <button
+                          style={{
+                            width: '70%',
+                            marginTop: '0.6em',
+                            background: '#0f172a',
+                            color: '#38bdf8',
+                            padding: '0.45em 0.9em',
+                            borderRadius: 6,
+                            fontSize: '0.9em',
+                            border: '1px solid #334155',
+                            cursor: 'pointer',
+                            textAlign: 'center',
+                          }}
+                          type="button"
+                          // TODO: Hook up to analysis view in a future step
+                        >
+                          Szczegóły biegu
+                        </button>
+                      </div>
                     </div>
                   </li>
                 ))}
