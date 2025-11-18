@@ -24,6 +24,9 @@ function Home() {
   const [goalInput, setGoalInput] = useState('100');
   const [goalPeriodInput, setGoalPeriodInput] = useState('month');
   const [goalSummary, setGoalSummary] = useState(null); // niezależny od dolnego widgetu
+  // Zakres dla widoku 30 dni
+  const [rangeStart, setRangeStart] = useState(null); // ISO date string
+  const [rangeEnd, setRangeEnd] = useState(null); // ISO date string
 
   const fetchWeekly = async (currentPeriod = '7d') => {
     try {
@@ -305,7 +308,9 @@ function Home() {
                 <span className="home-last-workout-label">{periodHeader}</span>
                 <span className="home-weekly-total">
                   {weekly
-                    ? `${weekly.total_distance_m.toFixed(0)} m`
+                    ? weekly.total_distance_m >= 1000
+                      ? `${(weekly.total_distance_m / 1000).toFixed(2)} km`
+                      : `${weekly.total_distance_m.toFixed(0)} m`
                     : '0 m'}
                 </span>
               </div>
@@ -363,7 +368,11 @@ function Home() {
                   const ticks = maxM > 0 ? [1, 0.75, 0.5, 0.25].map((r) => r * maxM) : [];
 
                   const formatTick = (m) => {
-                    if (m >= 1000) return `${(m / 1000).toFixed(0)}k m`;
+                    if (m >= 1000) {
+                      const km = m / 1000;
+                      // km: 0-9 -> 1 decimal, else integer
+                      return km >= 10 ? `${Math.round(km)} km` : `${km.toFixed(1)} km`;
+                    }
                     return `${Math.round(m)} m`;
                   };
 
@@ -405,23 +414,92 @@ function Home() {
                         ))}
                       </div>
 
-                      {/* Kolumny */}
+                      {/* Kolumny + interakcja zakresu (30 dni) */}
                       <div className="home-weekly-bars">
                         {items.map((it) => {
-                          const m = Number(it.distance_m) || 0;
-                          const height = maxM > 0 ? (m / maxM) * 100 : 0;
-                          const label = labelFor(it);
+  const m = Number(it.distance_m) || 0;
+  const height = maxM > 0 ? (m / maxM) * 100 : 0;
+  const label = labelFor(it);
+
+  const isEmpty = m === 0;
+  const isSelected =
+    period === '30d' &&
+    (it.label === rangeStart ||
+      it.label === rangeEnd ||
+      (rangeStart &&
+        rangeEnd &&
+        it.label >= rangeStart &&
+        it.label <= rangeEnd));
+
+  const barClass = [
+    'home-weekly-bar',
+    isEmpty ? 'empty' : '',
+    isSelected ? 'selected' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  const handleClick = () => {
+    if (period !== '30d') return;
+    if (!rangeStart) {
+      setRangeStart(it.label);
+      setRangeEnd(null);
+    } else if (rangeStart && !rangeEnd) {
+      if (it.label < rangeStart) {
+        setRangeEnd(rangeStart);
+        setRangeStart(it.label);
+      } else {
+        setRangeEnd(it.label);
+      }
+    } else {
+      setRangeStart(it.label);
+      setRangeEnd(null);
+    }
+  };
+
+  return (
+    <div
+      key={it.label}
+      className="home-weekly-bar-wrapper"
+      onClick={handleClick}
+      style={{ cursor: period === '30d' ? 'pointer' : 'default' }}
+    >
+      <div
+        className={barClass}
+        title={`${
+          m >= 1000 ? (m / 1000).toFixed(2) + ' km' : m.toFixed(0) + ' m'
+        }`}
+        style={{
+          height: `${Math.max(height, m > 0 ? 8 : 3)}%`, // minimalna wysokość trochę większa
+        }}
+      />
+      <span className="home-weekly-bar-label">{label}</span>
+    </div>
+  );
+})}
+                      </div>
+                      {period === '30d' && rangeStart && rangeEnd && (
+                        (() => {
+                          const startDate = new Date(rangeStart);
+                          const endDate = new Date(rangeEnd);
+                          const rangeDistanceM = items.reduce((sum, it) => {
+                            if (it.label >= rangeStart && it.label <= rangeEnd) {
+                              return sum + (Number(it.distance_m) || 0);
+                            }
+                            return sum;
+                          }, 0);
+                          const rangeLabelStart = startDate.toLocaleDateString('pl-PL', { day: '2-digit', month: 'short' });
+                          const rangeLabelEnd = endDate.toLocaleDateString('pl-PL', { day: '2-digit', month: 'short' });
+                          const rangeKm = rangeDistanceM >= 1000 ? (rangeDistanceM/1000).toFixed(2)+ ' km' : rangeDistanceM.toFixed(0)+ ' m';
                           return (
-                            <div key={it.label} className="home-weekly-bar-wrapper">
-                              <div
-                                className="home-weekly-bar"
-                                style={{ height: `${Math.max(height, m > 0 ? 6 : 2)}%` }}
-                              />
-                              <span className="home-weekly-bar-label">{label}</span>
+                            <div className="home-weekly-range-pill">
+                              <span>Zakres: {rangeLabelStart} – {rangeLabelEnd}</span>
+                              <span>{rangeKm}</span>
+                              <button type="button" onClick={() => {setRangeStart(null); setRangeEnd(null);}}>Reset</button>
                             </div>
                           );
-                        })}
-                      </div>
+                        })()
+                      )}
                     </>
                   );
                 })()}
