@@ -1,5 +1,7 @@
 // src/components/Home.jsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { MapContainer, TileLayer, Polyline } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
 
 function formatPace(durationMs, distanceM) {
   if (!durationMs || !distanceM || distanceM === 0) return null;
@@ -16,6 +18,9 @@ function Home() {
   const [lastWorkout, setLastWorkout] = useState(null);
   const [loading, setLoading] = useState(true);
   const [recentWorkouts, setRecentWorkouts] = useState([]);
+  const [selectedRouteId, setSelectedRouteId] = useState(null);
+  const [routePoints, setRoutePoints] = useState([]);
+  const [routeError, setRouteError] = useState('');
   const [weekly, setWeekly] = useState(null);
   const [period, setPeriod] = useState('7d'); // 7d, 30d, year
 
@@ -97,7 +102,11 @@ function Home() {
           const db = new Date(b.performed_at || b.created_at || 0).getTime();
           return db - da;
         });
-        setRecentWorkouts(sorted.slice(0, 3));
+        const top3 = sorted.slice(0, 3);
+        setRecentWorkouts(top3);
+        // preselect first available with GPX
+        const firstWithGpx = top3.find((w) => !!w.gpx_file);
+        setSelectedRouteId(firstWithGpx ? firstWithGpx.id : (top3[0]?.id ?? null));
       } catch (e) {
         console.error(e);
       }
@@ -214,6 +223,46 @@ function Home() {
                   );
                 })}
               </ul>
+            )}
+          </div>
+
+          {/* NOWY WIDGET – trasa biegu (ostatnie 3 do wyboru) */}
+          <div className="home-route-card">
+            <div className="home-recent-header">
+              <span className="home-last-workout-label">Trasa (ostatnie 3)</span>
+            </div>
+
+            {recentWorkouts.length === 0 ? (
+              <p className="home-recent-empty">Brak danych – dodaj trening.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <select
+                  value={selectedRouteId ?? ''}
+                  onChange={(e) => setSelectedRouteId(Number(e.target.value))}
+                  style={{ borderRadius: 8, padding: '0.35rem 0.5rem' }}
+                >
+                  {recentWorkouts.map((w) => {
+                    const d = w.performed_at || w.created_at;
+                    const dateStr = d
+                      ? new Date(d).toLocaleDateString('pl-PL', {
+                          day: '2-digit',
+                          month: 'short',
+                          year: 'numeric',
+                        })
+                      : '';
+                    return (
+                      <option key={w.id} value={w.id}>
+                        {dateStr} {w.gpx_file ? '' : '(brak GPS)'}
+                      </option>
+                    );
+                  })}
+                </select>
+
+                <RouteMap
+                  workoutId={selectedRouteId}
+                  hasGpx={Boolean(recentWorkouts.find((w) => w.id === selectedRouteId)?.gpx_file)}
+                />
+              </div>
             )}
           </div>
         </div>
@@ -513,3 +562,164 @@ function Home() {
 }
 
 export default Home;
+
+// --- Helper components ---
+
+function RouteMap({ workoutId, hasGpx }) {
+  const [points, setPoints] = useState([]); // [{lat, lon, time}]
+  const [segments, setSegments] = useState([]); // [{coords:[[lat,lon],[lat,lon]], speed}]
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setPoints([]);
+    setSegments([]);
+    setError('');
+    if (!workoutId) return;
+    if (!hasGpx) {
+      setError('Brak dołączonych danych GPS dla wybranego treningu.');
+      return;
+    }
+
+    const fetchGpx = async () => {
+      try {
+        const res = await fetch(`http://127.0.0.1:8000/api/workouts/${workoutId}/gpx/`, {
+          credentials: 'include',
+        });
+        if (!res.ok) throw new Error('Brak dołączonych danych GPS');
+        const text = await res.text();
+        const parsed = parseGpxTrack(text);
+        setPoints(parsed);
+      } catch (e) {
+        console.error(e);
+        setError('Brak dołączonych danych GPS dla wybranego treningu.');
+      }
+    };
+    fetchGpx();
+  }, [workoutId, hasGpx]);
+
+  useEffect(() => {
+    if (!points || points.length < 2) return;
+
+    // zbuduj odcinki z prędkością m/s
+    const segs = [];
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1];
+      const b = points[i];
+      const dist = haversineM(a.lat, a.lon, b.lat, b.lon); // metry
+
+      let speed = null;
+      if (a.time && b.time) {
+        const dt = (b.time - a.time) / 1000; // sekundy
+        if (dt > 0) speed = dist / dt;      // m/s
+      }
+      segs.push({ coords: [[a.lat, a.lon], [b.lat, b.lon]], speed });
+    }
+
+    // gradient: zielony (wolno) -> żółty -> czerwony (szybko)
+    const validSpeeds = segs
+      .filter((s) => typeof s.speed === 'number' && s.speed > 0)
+      .map((s) => s.speed)
+      .sort((a, b) => a - b);
+
+    if (validSpeeds.length > 0) {
+      const min = validSpeeds[0];
+      const max = validSpeeds[validSpeeds.length - 1] || min;
+
+      const speedToColor = (v) => {
+        if (!max || max === min) {
+          // wszystkie prędkości takie same -> środek skali (żółty)
+          return 'hsl(50, 85%, 50%)';
+        }
+        // normalizacja 0..1
+        const t = Math.min(1, Math.max(0, (v - min) / (max - min)));
+        // 0 -> 120° (zielony), 0.5 -> ok. 60° (żółty), 1 -> 0° (czerwony)
+        const hue = 120 - 120 * t;
+        return `hsl(${hue}, 85%, 50%)`;
+      };
+
+      segs.forEach((s) => {
+        s.color = s.speed && s.speed > 0 ? speedToColor(s.speed) : '#6b7280';
+      });
+    } else {
+      // brak sensownych prędkości -> jednolity kolor
+      segs.forEach((s) => {
+        s.color = '#22c55e';
+      });
+    }
+
+    setSegments(segs);
+  }, [points]);
+
+
+  const bounds = useMemo(() => {
+    if (!points || points.length === 0) return null;
+    const lats = points.map(p => p.lat);
+    const lngs = points.map(p => p.lon);
+    return [
+      [Math.min(...lats), Math.min(...lngs)],
+      [Math.max(...lats), Math.max(...lngs)],
+    ];
+  }, [points]);
+
+  if (error) return <p className="home-recent-empty" style={{ marginTop: 6 }}>{error}</p>;
+  if (!points || points.length < 2) return <p className="home-recent-empty" style={{ marginTop: 6 }}>Ładowanie trasy...</p>;
+
+  const center = [points[0].lat, points[0].lon];
+
+  return (
+    <div className="route-map">
+      <MapContainer
+      bounds={bounds || undefined}
+      boundsOptions={{ padding: [20, 20] }}
+      scrollWheelZoom={false}
+      style={{ height: 300, width: '100%', borderRadius: 12 }}
+    >
+      <TileLayer
+        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+      />
+      {segments.map((s, idx) => (
+        <Polyline
+          key={idx}
+          positions={s.coords}
+          pathOptions={{ color: s.color, weight: 5, opacity: 0.85 }}
+        />
+      ))}
+    </MapContainer>
+    </div>
+  );
+}
+
+function parseGpxTrack(xmlText) {
+  try {
+    const parser = new DOMParser();
+    const xml = parser.parseFromString(xmlText, 'application/xml');
+    let pts = Array.from(xml.getElementsByTagName('trkpt'));
+    if (pts.length === 0) pts = Array.from(xml.getElementsByTagName('rtept'));
+    const out = pts.map(pt => {
+      const lat = parseFloat(pt.getAttribute('lat'));
+      const lon = parseFloat(pt.getAttribute('lon'));
+      let timeNode = pt.getElementsByTagName('time')[0];
+      let time = null;
+      if (timeNode) {
+        const t = Date.parse(timeNode.textContent.trim());
+        if (!isNaN(t)) time = new Date(t);
+      }
+      return { lat, lon, time };
+    }).filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon));
+    return out;
+  } catch (e) {
+    console.error('parseGpxTrack error', e);
+    return [];
+  }
+}
+
+function haversineM(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toRad = deg => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}

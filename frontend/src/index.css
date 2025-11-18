@@ -203,14 +203,13 @@ button:hover {
 .home-hero-grid {
   display: grid;
   grid-template-columns:
-    280px                 /* lewy widget */
-    minmax(420px, 660px)  /* filmik: min 420px, max 660px */
-    280px;                /* prawe widgety (symetrycznie do lewej) */
-
-  gap: 64px;              /* równy, estetyczny odstęp między kolumnami */
+    320px                 /* lewy widget – szerszy dla mapy */
+    minmax(420px, 620px)  /* filmik */
+    320px;                /* prawa kolumna dla symetrii */
+  gap: 64px;
   width: min(1400px, 95vw);
   margin-top: 10px;
-  justify-content: center; /* całość wycentrowana na stronie */
+  justify-content: center;
 }
 
 .home-col {
@@ -219,7 +218,11 @@ button:hover {
 
 /* lewa karta wycentrowana w swojej kolumnie */
 .home-col-left {
-  justify-content: center;
+  display: flex;
+  flex-direction: column;   /* <-- zamiast domyślnego row */
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 0.8rem;              /* odstęp między "Ostatnie treningi" i "Trasa" */
 }
 
 /* środkowa kolumna – filmik dokładnie na środku */
@@ -299,7 +302,8 @@ button:hover {
   backdrop-filter: blur(12px);
   box-shadow: 0 10px 30px rgba(15, 23, 42, 0.5);
   color: #e5e7eb;
-  max-height: 260px;
+  width: 100%;          /* dopasowanie do kolumny */
+  max-height: none;     /* usuwamy sztuczny limit wysokości */
 }
 
 .home-recent-header {
@@ -374,6 +378,27 @@ button:hover {
 
 .home-recent-empty {
   font-size: 0.8rem;
+}
+
+/* MAP WIDGET */
+.home-route-card {
+  background: rgba(15, 23, 42, 0.78);
+  border-radius: 16px;
+  padding: 0.7rem 0.9rem;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.5);
+  color: #e5e7eb;
+  width: 100%;
+  margin-top: 0.8rem;   /* przeniesione z inline style */
+}
+
+.route-map .leaflet-container {
+  border-radius: 12px;
+  box-shadow: 0 6px 18px rgba(15,23,42,0.45);
+}
+
+.route-map .leaflet-pane .leaflet-overlay-pane path {
+  transition: stroke 0.2s ease;
 }
 
 /* ---------------------------------------------- */

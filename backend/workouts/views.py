@@ -4,7 +4,7 @@ from io import BytesIO
 
 from django.contrib.auth.decorators import login_required
 from django.db.models import Q
-from django.http import JsonResponse, HttpRequest
+from django.http import JsonResponse, HttpRequest, HttpResponse
 from django.core.files.storage import default_storage
 from django.views.decorators.csrf import csrf_exempt
 
@@ -206,6 +206,32 @@ def upload_gpx(request: HttpRequest, workout_id: int) -> JsonResponse:
 
     Front-end sends multipart/form-data with field "file".
     """
+    # GET -> return GPX content if available
+    if request.method == "GET":
+        try:
+            workout = Workout.objects.get(id=workout_id, user=request.user)
+        except Workout.DoesNotExist:
+            return JsonResponse({"error": "Workout not found"}, status=404)
+
+        # Prefer inline DB storage
+        if workout.gpx_data:
+            resp = HttpResponse(workout.gpx_data, content_type=workout.gpx_mime or "application/gpx+xml")
+            disp_name = (workout.gpx_name or f"workout_{workout.id}.gpx").replace('"', '')
+            resp["Content-Disposition"] = f"inline; filename=\"{disp_name}\""
+            return resp
+
+        # Fallback to legacy file if still present
+        if workout.gpx_file and getattr(workout.gpx_file, 'file', None):
+            try:
+                data = workout.gpx_file.read()
+                resp = HttpResponse(data, content_type="application/gpx+xml")
+                disp_name = (workout.gpx_file.name.split('/')[-1] or f"workout_{workout.id}.gpx").replace('"', '')
+                resp["Content-Disposition"] = f"inline; filename=\"{disp_name}\""
+                return resp
+            except Exception:
+                pass
+        return JsonResponse({"error": "No GPX attached"}, status=404)
+
     if request.method != "POST":
         return JsonResponse({"error": "Only POST allowed"}, status=405)
 
