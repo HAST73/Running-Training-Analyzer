@@ -109,6 +109,18 @@ export default function WorkoutAnalysis() {
   const splits = (data?.analysis?.splits) || [];
   const chart = data?.analysis?.chart || { km: [], pace_s: [], elev: [] };
 
+  const adidasMeta = data?.adidas_meta || {};
+  const weather = adidasMeta.weather || null;
+  const steps = adidasMeta.steps || null;
+
+  // Średnia kadencja – najpierw z analizy GPX, fallback do Adidas JSON
+  const avgCadence =
+    (data?.analysis?.summary?.avg_cadence_spm != null
+      ? data.analysis.summary.avg_cadence_spm
+      : (steps?.average_step_rate_spm != null
+        ? steps.average_step_rate_spm
+        : null));
+
   return (
     <section>
       <h2 style={{ textAlign: 'center', marginBottom: '1rem' }}>Szczegółowa analiza biegu</h2>
@@ -121,11 +133,27 @@ export default function WorkoutAnalysis() {
 
       {!loading && !error && data && (
         <div style={{ maxWidth: 900, margin: '0 auto' }}>
+          {/* PODSTAWOWE INFO + POGODA */}
           <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '1rem', marginBottom: '1rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', rowGap: 8 }}>
-              <div>
+              <div style={{ minWidth: 260 }}>
                 <div><strong>Trening:</strong> {data.title}</div>
                 <div><strong>Data:</strong> {data.performed_at ? new Date(data.performed_at).toLocaleString('pl-PL') : '-'}</div>
+                {weather && (
+                  <div style={{ marginTop: '0.5rem', fontSize: '0.9em', color: '#4b5563' }}>
+                    <strong>Pogoda:</strong>{' '}
+                    {weather.conditions || 'brak danych'}
+                    {weather.temperature_c != null && (
+                      <> , {Number(weather.temperature_c).toFixed(1)}°C</>
+                    )}
+                    {weather.humidity_percent != null && (
+                      <> , wilgotność {Math.round(weather.humidity_percent)}%</>
+                    )}
+                    {weather.wind_speed_ms != null && (
+                      <> , wiatr {Number(weather.wind_speed_ms).toFixed(1)} m/s</>
+                    )}
+                  </div>
+                )}
               </div>
               <div>
                 <div><strong>Dystans:</strong> {data.distance_m ? (data.distance_m / 1000).toFixed(2) + ' km' : '-'}</div>
@@ -140,11 +168,52 @@ export default function WorkoutAnalysis() {
                   </p>
                 )}
                 <div><strong>Kalorie:</strong> {data.calories_kcal ? Math.round(data.calories_kcal) + ' kcal' : (data.analysis?.summary?.calories_kcal != null ? Math.round(data.analysis?.summary?.calories_kcal) + ' kcal' : '-')}</div>
-                <div><strong>Śr. kadencja:</strong> {data.analysis?.summary?.avg_cadence_spm != null ? Math.round(data.analysis?.summary?.avg_cadence_spm) + ' spm' : '-'}</div>
+                <div><strong>Śr. kadencja:</strong> {avgCadence != null ? Math.round(avgCadence) + ' spm' : '-'}</div>
               </div>
             </div>
           </div>
 
+          {/* DODATKOWE STATY Z ADIDAS JSON: KROKI / DEHYDRACJA / URZĄDZENIE */}
+          {(steps || adidasMeta.dehydration_volume_ml || adidasMeta.device) && (
+            <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.75rem', marginBottom: '1rem' }}>
+              <h4 style={{ marginTop: 0 }}>Statystyki z Adidas JSON</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <div>
+                  {steps && (
+                    <>
+                      <div><strong>Liczba kroków:</strong> {steps.total_steps != null ? steps.total_steps.toLocaleString?.('pl-PL') ?? steps.total_steps : '-'}</div>
+                      <div><strong>Śr. kadencja (Adidas):</strong> {steps.average_step_rate_spm != null ? `${steps.average_step_rate_spm} spm` : '-'}</div>
+                      <div><strong>Maks. kadencja:</strong> {steps.max_step_rate_spm != null ? `${steps.max_step_rate_spm} spm` : '-'}</div>
+                      <div>
+                        <strong>Śr. długość kroku:</strong>{' '}
+                        {steps.average_step_length_cm != null
+                          ? `${(Number(steps.average_step_length_cm) / 100).toFixed(2)} m`
+                          : '-'}
+                      </div>
+                    </>
+                  )}
+                </div>
+                <div>
+                  {adidasMeta.dehydration_volume_ml != null && (
+                    <div><strong>Szacowana utrata płynów:</strong> ~{Math.round(adidasMeta.dehydration_volume_ml)} ml</div>
+                  )}
+                  {adidasMeta.duration_ms != null && (
+                    <div><strong>Czas wg Adidas:</strong> {fmtTime(adidasMeta.duration_ms / 1000)}</div>
+                  )}
+                  {adidasMeta.device && (
+                    <div style={{ marginTop: '0.4rem', fontSize: '0.9em', color: '#4b5563' }}>
+                      <strong>Urządzenie:</strong>{' '}
+                      {[adidasMeta.device.name, adidasMeta.device.vendor, adidasMeta.device.os_version]
+                        .filter(Boolean)
+                        .join(' · ') || 'brak danych'}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* MAPA */}
           <div style={{ marginBottom: '1rem' }}>
             <h4 style={{ margin: '0 0 8px 0' }}>Mapa trasy (pace)</h4>
             <div style={{ height: 420, border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
@@ -157,6 +226,7 @@ export default function WorkoutAnalysis() {
             </div>
           </div>
 
+          {/* WYKRES TEMPO / WYSOKOŚĆ */}
           <div style={{ marginBottom: '1rem' }}>
             <h4 style={{ margin: '0 0 8px 0' }}>Wykres tempa i wysokości (km → tempo / wysokość)</h4>
             <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
@@ -164,6 +234,7 @@ export default function WorkoutAnalysis() {
             </div>
           </div>
 
+          {/* NAJMOCNIEJSZE SEGMENTY + ZMIANY TEMPA */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: '1rem' }}>
             <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.75rem' }}>
               <h4 style={{ marginTop: 0 }}>Najmocniejsze segmenty biegu</h4>
@@ -179,7 +250,7 @@ export default function WorkoutAnalysis() {
                 <div>
                   <strong>Najszybsze odcinki (~200 m)</strong>
                   <ul>
-                    {(data.analysis?.pace_extremes?.fastest || []).slice(0,5).map((it, i) => (
+                    {(data.analysis?.pace_extremes?.fastest || []).slice(0, 5).map((it, i) => (
                       <li key={i}>{fmtPace(it.pace_s)}</li>
                     ))}
                   </ul>
@@ -187,7 +258,7 @@ export default function WorkoutAnalysis() {
                 <div>
                   <strong>Najwolniejsze odcinki (~200 m)</strong>
                   <ul>
-                    {(data.analysis?.pace_extremes?.slowest || []).slice(0,5).map((it, i) => (
+                    {(data.analysis?.pace_extremes?.slowest || []).slice(0, 5).map((it, i) => (
                       <li key={i}>{fmtPace(it.pace_s)}</li>
                     ))}
                   </ul>
@@ -196,6 +267,7 @@ export default function WorkoutAnalysis() {
             </div>
           </div>
 
+          {/* SPLITY */}
           <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.75rem', marginBottom: '1rem' }}>
             <h4 style={{ marginTop: 0 }}>Splity (kilometrowe)</h4>
             <div style={{ overflowX: 'auto' }}>
@@ -224,6 +296,7 @@ export default function WorkoutAnalysis() {
             </div>
           </div>
 
+          {/* ANALIZA AI + FAZY BIEGU */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.75rem' }}>
               <h4 style={{ marginTop: 0 }}>Analiza AI</h4>
@@ -233,8 +306,8 @@ export default function WorkoutAnalysis() {
               <h4 style={{ marginTop: 0 }}>Fazy biegu (technika)</h4>
               <ul>
                 <li><strong>Początek:</strong> tempo {fmtPace((splits[0]?.pace_s) || data.analysis?.best_segments?.best_1k_pace_s)}</li>
-                <li><strong>Środek:</strong> tempo {fmtPace((splits[Math.floor(splits.length/2)]?.pace_s))}</li>
-                <li><strong>Koniec:</strong> tempo {fmtPace((splits[splits.length-1]?.pace_s))}</li>
+                <li><strong>Środek:</strong> tempo {fmtPace((splits[Math.floor(splits.length / 2)]?.pace_s))}</li>
+                <li><strong>Koniec:</strong> tempo {fmtPace((splits[splits.length - 1]?.pace_s))}</li>
               </ul>
               <p>Tempo może się wahać zależnie od terenu i zmęczenia.</p>
             </div>
