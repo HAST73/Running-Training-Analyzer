@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     'workouts',
     'events',
     'workout_analysis',
+    'payments',
 ]
 
 MIDDLEWARE = [
@@ -149,6 +150,11 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Stripe keys from environment (DO NOT hardcode secret key)
+STRIPE_SECRET_KEY = os.environ.get('STRIPE_SECRET_KEY')
+STRIPE_PUBLISHABLE_KEY = os.environ.get('STRIPE_PUBLISHABLE_KEY')
+STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET')
 
 # CORS/CSRF for local dev with CRA
 CORS_ALLOWED_ORIGINS = [

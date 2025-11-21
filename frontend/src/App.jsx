@@ -6,11 +6,16 @@ import Workouts from './components/Workouts';
 import WorkoutAnalysis from './components/WorkoutAnalysis';
 import Social from './components/Social';
 import Events from './components/Events';
+import TrainingPlans from './components/TrainingPlans';
 import Profile from './components/Profile';
 
 function App() {
-  // Minimalny, prosty hash-router, żeby komponent się prze-renderował po zmianie #hash
-  const normalizeHash = () => (window.location.hash || '#home').toLowerCase();
+  // Minimalny hash-router – ignorujemy część po '?' (parametry)
+  const normalizeHash = () => {
+    const raw = window.location.hash || '#home';
+    const base = raw.split('?')[0];
+    return base.toLowerCase();
+  };
   const [route, setRoute] = useState(normalizeHash());
   const [session, setSession] = useState({ loading: true, authenticated: false });
 
@@ -24,15 +29,37 @@ function App() {
     }
   };
 
+  // Potwierdzanie Stripe sesji globalnie – niezależnie od tego na której stronie wylądowaliśmy
+  const confirmStripeIfPresent = async () => {
+    const raw = window.location.hash || '';
+    if (!raw.includes('success=1') || !raw.includes('session_id=')) return;
+    const paramsPart = raw.split('?')[1] || '';
+    const sp = new URLSearchParams(paramsPart);
+    const sessionId = sp.get('session_id');
+    if (!sessionId) return;
+    try {
+      const res = await fetch(`http://127.0.0.1:8000/api/payments/confirm/?session_id=${encodeURIComponent(sessionId)}`, { credentials: 'include' });
+      const data = await res.json();
+      if (data.status === 'paid') {
+        await fetchSession();
+        // Przekierowanie na stronę planów po udanym potwierdzeniu
+        window.location.hash = '#plans';
+      }
+    } catch (e) {
+      // Ignorujemy błąd – użytkownik może spróbować ponownie ręcznie
+    }
+  };
+
   useEffect(() => {
-    const onHashChange = () => setRoute(normalizeHash());
-    // Ustaw domyślny hash przy pierwszym uruchomieniu
+    const onHashChange = () => {
+      setRoute(normalizeHash());
+      confirmStripeIfPresent();
+    };
     if (!window.location.hash) {
       window.location.hash = '#home';
     }
     window.addEventListener('hashchange', onHashChange);
-    // Po powrocie z OAuth Strava dopiszemy znacznik w hash (?from=strava)
-    fetchSession();
+    fetchSession().then(() => confirmStripeIfPresent());
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
 
@@ -70,6 +97,11 @@ function App() {
               <a href="#workouts" className={isActive('#workouts') ? 'active' : ''}>Treningi</a>
               <a href="#social" className={isActive('#social') ? 'active' : ''}>Społeczność</a>
               <a href="#events" className={isActive('#events') ? 'active' : ''}>Wydarzenia</a>
+              {session.pro_unlocked ? (
+                <a href="#plans" className={isActive('#plans') ? 'active' : ''}>Plany treningowe</a>
+              ) : (
+                <a href="#plans" className={isActive('#plans') ? 'active locked' : 'locked'} title="Dostęp PRO – odblokuj płatnością">🔒 Plany treningowe</a>
+              )}
             </>
           )}
         </div>
@@ -88,6 +120,7 @@ function App() {
         {authed && route === '#workouts' && <Workouts />}
         {authed && route === '#social' && <Social />}
         {authed && route === '#events' && <Events />}
+        {authed && route === '#plans' && <TrainingPlans session={session} refreshSession={fetchSession} />}
         {authed && route === '#profile' && <Profile session={session} onUpdated={fetchSession} />}
         {authed && route.startsWith('#analysis') && <WorkoutAnalysis />}
         {authed && (route === '#home' || route === '') && <Home />}

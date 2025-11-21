@@ -10,6 +10,7 @@ from datetime import datetime, timezone as dt_timezone, timedelta
 import json
 import os
 import requests
+from payments.models import Payment
 
 from .models import UserProfile, ActivityLog
 
@@ -24,12 +25,14 @@ def session(request):
 			height_cm = profile.height_cm
 			weight_kg = profile.weight_kg
 			needs_measurements = (profile.height_cm is None or profile.weight_kg is None)
+		pro_unlocked = Payment.objects.filter(user=request.user, status="paid").exists()
 		return JsonResponse({
 			"authenticated": True,
 			"username": request.user.username,
 			"height_cm": height_cm,
 			"weight_kg": float(weight_kg) if weight_kg is not None else None,
 			"needs_measurements": needs_measurements,
+			"pro_unlocked": pro_unlocked,
 		})
 	return JsonResponse({"authenticated": False})
 
