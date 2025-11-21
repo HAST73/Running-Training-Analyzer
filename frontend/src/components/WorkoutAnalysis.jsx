@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { MapContainer, TileLayer, Polyline } from 'react-leaflet';
+import { MapContainer, TileLayer, Polyline, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 
 function getHashParams() {
@@ -84,15 +84,46 @@ export default function WorkoutAnalysis() {
 
   const handleBack = () => { window.location.hash = '#workouts'; };
 
+  const trackPts = (data?.analysis?.track) || [];
   const center = (() => {
-    const pts = (data?.analysis?.track) || [];
-    if (pts.length) return [pts[0].lat, pts[0].lon];
+    if (trackPts.length) return [trackPts[0].lat, trackPts[0].lon];
     return [52.2297, 21.0122]; // Warsaw fallback
   })();
 
+  // Component that fits map to bounds of the track
+  function FitRouteBounds({ points }) {
+    const map = useMap();
+    useEffect(() => {
+      if (!points || points.length === 0) return;
+      let minLat = 90, maxLat = -90, minLng = 180, maxLng = -180;
+      for (const p of points) {
+        if (typeof p.lat !== 'number' || typeof p.lon !== 'number') continue;
+        if (p.lat < minLat) minLat = p.lat;
+        if (p.lat > maxLat) maxLat = p.lat;
+        if (p.lon < minLng) minLng = p.lon;
+        if (p.lon > maxLng) maxLng = p.lon;
+      }
+      if (minLat === 90 || minLng === 180) return;
+      const bounds = [[minLat, minLng], [maxLat, maxLng]];
+      try {
+        const verySmall = (Math.abs(maxLat - minLat) < 0.0005) && (Math.abs(maxLng - minLng) < 0.0005);
+        if (verySmall) {
+          const cLat = (minLat + maxLat) / 2;
+          const cLng = (minLng + maxLng) / 2;
+          map.setView([cLat, cLng], 15);
+        } else {
+          map.fitBounds(bounds, { padding: [24, 24] });
+        }
+      } catch (_) {
+        // ignore
+      }
+    }, [points, map]);
+    return null;
+  }
+
   // Build colored polylines from pace
   const polylines = (() => {
-    const pts = (data?.analysis?.track) || [];
+    const pts = trackPts;
     const lines = [];
     for (let i = 1; i < pts.length; i++) {
       const a = pts[i - 1], b = pts[i];
@@ -217,8 +248,9 @@ export default function WorkoutAnalysis() {
           <div style={{ marginBottom: '1rem' }}>
             <h4 style={{ margin: '0 0 8px 0' }}>Mapa trasy (pace)</h4>
             <div style={{ height: 420, border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
-              <MapContainer center={center} zoom={13} style={{ height: '100%', width: '100%' }}>
+              <MapContainer key={workoutId} center={center} zoom={13} style={{ height: '100%', width: '100%' }}>
                 <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                <FitRouteBounds points={trackPts} />
                 {polylines.map((ln, idx) => (
                   <Polyline key={idx} positions={ln.positions} pathOptions={{ color: ln.color, weight: 4 }} />
                 ))}
