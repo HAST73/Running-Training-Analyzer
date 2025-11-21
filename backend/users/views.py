@@ -16,7 +16,21 @@ from .models import UserProfile, ActivityLog
 
 def session(request):
 	if request.user.is_authenticated:
-		return JsonResponse({"authenticated": True, "username": request.user.username})
+		profile = getattr(request.user, "profile", None)
+		needs_measurements = False
+		height_cm = None
+		weight_kg = None
+		if profile:
+			height_cm = profile.height_cm
+			weight_kg = profile.weight_kg
+			needs_measurements = (profile.height_cm is None or profile.weight_kg is None)
+		return JsonResponse({
+			"authenticated": True,
+			"username": request.user.username,
+			"height_cm": height_cm,
+			"weight_kg": float(weight_kg) if weight_kg is not None else None,
+			"needs_measurements": needs_measurements,
+		})
 	return JsonResponse({"authenticated": False})
 
 
@@ -37,8 +51,19 @@ def register(request):
 	if User.objects.filter(username=username).exists():
 		return JsonResponse({"error": "Username taken"}, status=409)
 
+	height_cm = data.get("height_cm")
+	weight_kg = data.get("weight_kg")
 	user = User.objects.create_user(username=username, email=email, password=password)
-	UserProfile.objects.create(user=user)
+	profile = UserProfile.objects.create(user=user)
+	# Optional anthropometrics
+	try:
+		if height_cm is not None and str(height_cm).strip() != "":
+			profile.height_cm = int(height_cm)
+		if weight_kg is not None and str(weight_kg).strip() != "":
+			profile.weight_kg = float(weight_kg)
+		profile.save()
+	except (ValueError, TypeError):
+		pass
 	ActivityLog.objects.create(user=user, action="register", metadata={"email": email})
 	return JsonResponse({"status": "ok", "username": username})
 
@@ -132,3 +157,37 @@ def strava_callback(request):
 	request.session.save()
 	# Redirect back to frontend app (SPA)
 	return HttpResponseRedirect(FRONTEND_REDIRECT_URL)
+
+
+@csrf_exempt
+def profile(request):
+	"""GET returns current anthropometrics; POST updates them."""
+	if not request.user.is_authenticated:
+		return JsonResponse({"error": "auth required"}, status=401)
+	profile = request.user.profile
+	if request.method == "GET":
+		return JsonResponse({
+			"height_cm": profile.height_cm,
+			"weight_kg": float(profile.weight_kg) if profile.weight_kg is not None else None,
+		})
+	if request.method != "POST":
+		return JsonResponse({"error": "Method not allowed"}, status=405)
+	try:
+		data = json.loads(request.body.decode())
+	except json.JSONDecodeError:
+		return JsonResponse({"error": "Invalid JSON"}, status=400)
+	height_cm = data.get("height_cm")
+	weight_kg = data.get("weight_kg")
+	changed = {}
+	try:
+		if height_cm is not None and str(height_cm).strip() != "":
+			profile.height_cm = int(height_cm)
+			changed["height_cm"] = profile.height_cm
+		if weight_kg is not None and str(weight_kg).strip() != "":
+			profile.weight_kg = float(weight_kg)
+			changed["weight_kg"] = float(profile.weight_kg)
+		profile.save()
+	except (ValueError, TypeError):
+		return JsonResponse({"error": "Invalid values"}, status=400)
+	ActivityLog.objects.create(user=request.user, action="profile_update", metadata=changed)
+	return JsonResponse({"status": "ok", **changed})

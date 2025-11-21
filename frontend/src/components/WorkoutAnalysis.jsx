@@ -140,6 +140,42 @@ export default function WorkoutAnalysis() {
   const splits = (data?.analysis?.splits) || [];
   const chart = data?.analysis?.chart || { km: [], pace_s: [], elev: [] };
 
+  // Wnioski z faz biegu (początek / środek / koniec)
+  let phaseInfo = null;
+  if (splits.length >= 3) {
+    const third = Math.max(1, Math.floor(splits.length / 3));
+
+    const meanPace = (arr) => {
+      const vals = arr
+        .map((s) => s.pace_s)
+        .filter((v) => v != null && isFinite(v));
+      if (!vals.length) return null;
+      const sum = vals.reduce((a, b) => a + b, 0);
+      return sum / vals.length;
+    };
+
+    const beginPace = meanPace(splits.slice(0, third));
+    const middlePace = meanPace(splits.slice(third, 2 * third));
+    const endPace = meanPace(splits.slice(2 * third));
+
+    let conclusion = '';
+    if (beginPace && endPace) {
+      const diff = endPace - beginPace; // + => wolniejszy koniec
+      if (diff > 10) {
+        conclusion =
+          'Końcówka była wyraźnie wolniejsza niż początek – spróbuj zaczynać minimalnie wolniej, żeby utrzymać równe tempo do końca.';
+      } else if (diff < -10) {
+        conclusion =
+          'Druga część biegu była szybsza niż początek (negative split) – bardzo dobra dystrybucja sił.';
+      } else {
+        conclusion =
+          'Tempo na początku i na końcu było bardzo podobne – bieg równy pod względem intensywności.';
+      }
+    }
+
+    phaseInfo = { beginPace, middlePace, endPace, conclusion };
+  }
+
   const adidasMeta = data?.adidas_meta || {};
   const weather = adidasMeta.weather || null;
   const steps = adidasMeta.steps || null;
@@ -310,7 +346,6 @@ export default function WorkoutAnalysis() {
                     <th style={{ textAlign: 'left', borderBottom: '1px solid #e5e7eb', padding: 6 }}>tempo</th>
                     <th style={{ textAlign: 'left', borderBottom: '1px solid #e5e7eb', padding: 6 }}>przewyższenie</th>
                     <th style={{ textAlign: 'left', borderBottom: '1px solid #e5e7eb', padding: 6 }}>tętno</th>
-                    <th style={{ textAlign: 'left', borderBottom: '1px solid #e5e7eb', padding: 6 }}>kadencja</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -320,7 +355,6 @@ export default function WorkoutAnalysis() {
                       <td style={{ padding: 6 }}>{fmtPace(s.pace_s)}</td>
                       <td style={{ padding: 6 }}>{s.elev_gain_m != null ? `${Math.round(s.elev_gain_m)} m` : '-'}</td>
                       <td style={{ padding: 6 }}>-</td>
-                      <td style={{ padding: 6 }}>{s.cadence_spm != null ? Math.round(s.cadence_spm) : '-'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -332,16 +366,33 @@ export default function WorkoutAnalysis() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.75rem' }}>
               <h4 style={{ marginTop: 0 }}>Analiza AI</h4>
-              <p>{data.ai_note || 'Brak wniosków.'}</p>
+              <p style={{ whiteSpace: 'pre-line', marginBottom: 0 }}>
+                {data.ai_note || 'Brak wniosków.'}
+              </p>
             </div>
             <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.75rem' }}>
               <h4 style={{ marginTop: 0 }}>Fazy biegu (technika)</h4>
-              <ul>
-                <li><strong>Początek:</strong> tempo {fmtPace((splits[0]?.pace_s) || data.analysis?.best_segments?.best_1k_pace_s)}</li>
-                <li><strong>Środek:</strong> tempo {fmtPace((splits[Math.floor(splits.length / 2)]?.pace_s))}</li>
-                <li><strong>Koniec:</strong> tempo {fmtPace((splits[splits.length - 1]?.pace_s))}</li>
-              </ul>
-              <p>Tempo może się wahać zależnie od terenu i zmęczenia.</p>
+
+              {phaseInfo ? (
+                <>
+                  <ul>
+                    <li>
+                      <strong>Początek:</strong> tempo {fmtPace(phaseInfo.beginPace)}
+                    </li>
+                    <li>
+                      <strong>Środek:</strong> tempo {fmtPace(phaseInfo.middlePace)}
+                    </li>
+                    <li>
+                      <strong>Koniec:</strong> tempo {fmtPace(phaseInfo.endPace)}
+                    </li>
+                  </ul>
+                  {phaseInfo.conclusion && (
+                    <p style={{ marginBottom: 0 }}>{phaseInfo.conclusion}</p>
+                  )}
+                </>
+              ) : (
+                <p>Za mało danych, aby podzielić bieg na fazy.</p>
+              )}
             </div>
           </div>
         </div>

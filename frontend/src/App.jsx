@@ -6,6 +6,7 @@ import Workouts from './components/Workouts';
 import WorkoutAnalysis from './components/WorkoutAnalysis';
 import Social from './components/Social';
 import Events from './components/Events';
+import Profile from './components/Profile';
 
 function App() {
   // Minimalny, prosty hash-router, żeby komponent się prze-renderował po zmianie #hash
@@ -75,6 +76,7 @@ function App() {
 
         {authed && (
           <div className="nav-right">
+            <a href="#profile" className={isActive('#profile') ? 'active' : ''}>Profil</a>
             <button onClick={handleLogout}>Wyloguj</button>
           </div>
         )}
@@ -86,9 +88,11 @@ function App() {
         {authed && route === '#workouts' && <Workouts />}
         {authed && route === '#social' && <Social />}
         {authed && route === '#events' && <Events />}
+        {authed && route === '#profile' && <Profile session={session} onUpdated={fetchSession} />}
         {authed && route.startsWith('#analysis') && <WorkoutAnalysis />}
         {authed && (route === '#home' || route === '') && <Home />}
       </div>
+      {/* Measurements modal removed: anthropometrics only editable on Profile page */}
     </div>
   );
 }

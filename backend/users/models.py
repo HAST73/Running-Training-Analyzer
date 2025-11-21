@@ -9,6 +9,9 @@ class UserProfile(models.Model):
 	strava_access_token = models.CharField(max_length=255, blank=True, null=True)
 	strava_refresh_token = models.CharField(max_length=255, blank=True, null=True)
 	strava_token_expires_at = models.DateTimeField(blank=True, null=True)
+	# Antropometria (opcjonalna, do dokładniejszych obliczeń kalorii i personalizacji)
+	height_cm = models.PositiveSmallIntegerField(blank=True, null=True)
+	weight_kg = models.DecimalField(max_digits=5, decimal_places=2, blank=True, null=True)
 
 	def __str__(self) -> str:
 		return f"Profile({self.user.username})"

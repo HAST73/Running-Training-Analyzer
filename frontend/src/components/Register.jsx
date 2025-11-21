@@ -4,17 +4,22 @@ function Register({ afterAuth }) {
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [heightCm, setHeightCm] = useState('');
+  const [weightKg, setWeightKg] = useState('');
   const [error, setError] = useState('');
 
   const onSubmit = async (e) => {
     e.preventDefault();
     setError('');
     try {
+      const payload = { username, email, password };
+      if (heightCm.trim() !== '') payload.height_cm = heightCm.trim();
+      if (weightKg.trim() !== '') payload.weight_kg = weightKg.trim();
       const res = await fetch('http://127.0.0.1:8000/api/register/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ username, email, password }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -71,6 +76,29 @@ function Register({ afterAuth }) {
               type="password"
               name="password"
               required
+            />
+          </label>
+          <label>
+            Wzrost (cm)
+            <input
+              value={heightCm}
+              onChange={(e) => setHeightCm(e.target.value)}
+              type="number"
+              min="0"
+              name="height_cm"
+              placeholder="np. 180"
+            />
+          </label>
+          <label>
+            Waga (kg)
+            <input
+              value={weightKg}
+              onChange={(e) => setWeightKg(e.target.value)}
+              type="number"
+              min="0"
+              step="0.1"
+              name="weight_kg"
+              placeholder="np. 72.5"
             />
           </label>
           {error && <p className="auth-error">{error}</p>}

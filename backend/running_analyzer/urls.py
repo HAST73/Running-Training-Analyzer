@@ -20,6 +20,7 @@ from users import views as user_views
 from workouts import views as workout_views
 from events import views as events_views
 from workout_analysis import views as analysis_views
+from users import views as user_views
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -38,4 +39,5 @@ urlpatterns = [
     path('api/workouts/import_strava/', workout_views.import_strava_workouts, name='workouts_import_strava'),
     path('api/events/', events_views.list_events, name='events_list'),
     path('api/workouts/<int:workout_id>/analysis/', analysis_views.workout_analysis, name='workout_analysis'),
+    path('api/profile/', user_views.profile, name='profile'),
 ]
