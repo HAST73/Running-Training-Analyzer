@@ -53,6 +53,48 @@ function PaceElevationChart({ km, pace, elev }) {
   );
 }
 
+function parseAiNote(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+
+  const sections = {
+    summary: [],
+    good: [],
+    improve: [],
+    anthropo: [],
+  };
+
+  const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  let current = null;
+
+  for (const line of lines) {
+    if (line.startsWith('Podsumowanie:')) {
+      current = 'summary';
+      continue;
+    }
+    if (line.startsWith('Co poszło dobrze:')) {
+      current = 'good';
+      continue;
+    }
+    if (line.startsWith('Na co zwrócić uwagę:')) {
+      current = 'improve';
+      continue;
+    }
+    if (line.startsWith('Wskazówki antropometryczne:')) {
+      current = 'anthropo';
+      continue;
+    }
+
+    if (line.startsWith('- ')) {
+      const text = line.slice(2).trim();
+      if (current && text) {
+        sections[current].push(text);
+      }
+    }
+  }
+
+  return sections;
+}
+
 export default function WorkoutAnalysis() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -187,6 +229,12 @@ export default function WorkoutAnalysis() {
       : (steps?.average_step_rate_spm != null
         ? steps.average_step_rate_spm
         : null));
+
+  // Parsowanie tekstu Analiza AI na sekcje (podsumowanie / plusy / rzeczy do poprawy / antropometria)
+  const aiSections = useMemo(
+    () => (data?.ai_note ? parseAiNote(data.ai_note) : null),
+    [data?.ai_note]
+  );
 
   return (
     <section>
@@ -364,12 +412,160 @@ export default function WorkoutAnalysis() {
 
           {/* ANALIZA AI + FAZY BIEGU */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            {/* ANALIZA AI – ładniejsze sekcje */}
             <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.75rem' }}>
-              <h4 style={{ marginTop: 0 }}>Analiza AI</h4>
-              <p style={{ whiteSpace: 'pre-line', marginBottom: 0 }}>
-                {data.ai_note || 'Brak wniosków.'}
-              </p>
+              <h4 style={{ marginTop: 0, marginBottom: '0.5rem' }}>Analiza AI</h4>
+
+              {!aiSections ? (
+                <p style={{ marginBottom: 0 }}>
+                  {data?.ai_note || 'Brak wniosków.'}
+                </p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {/* Podsumowanie */}
+                  {aiSections.summary.length > 0 && (
+                    <div
+                      style={{
+                        borderRadius: 6,
+                        padding: '0.5rem 0.75rem',
+                        background: '#f9fafb',
+                        border: '1px solid #e5e7eb',
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: '0.8em',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.06em',
+                          color: '#6b7280',
+                          marginBottom: 4,
+                        }}
+                      >
+                        Podsumowanie
+                      </div>
+                      <ul style={{ paddingLeft: '1.1rem', margin: 0, fontSize: '0.9em' }}>
+                        {aiSections.summary.map((t, i) => (
+                          <li key={i}>{t}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Co poszło dobrze */}
+                  {aiSections.good.length > 0 && (
+                    <div
+                      style={{
+                        borderRadius: 6,
+                        padding: '0.5rem 0.75rem',
+                        background: '#ecfdf5',
+                        border: '1px solid #bbf7d0',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          marginBottom: 4,
+                        }}
+                      >
+                        <span style={{ fontSize: 18 }}>✅</span>
+                        <span style={{ fontSize: '0.9em', fontWeight: 600, color: '#166534' }}>
+                          Co poszło dobrze
+                        </span>
+                      </div>
+                      <ul
+                        style={{
+                          paddingLeft: '1.1rem',
+                          margin: 0,
+                          fontSize: '0.9em',
+                          color: '#166534',
+                        }}
+                      >
+                        {aiSections.good.map((t, i) => (
+                          <li key={i}>{t}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Na co zwrócić uwagę */}
+                  {aiSections.improve.length > 0 && (
+                    <div
+                      style={{
+                        borderRadius: 6,
+                        padding: '0.5rem 0.75rem',
+                        background: '#fefce8',
+                        border: '1px solid #facc15',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          marginBottom: 4,
+                        }}
+                      >
+                        <span style={{ fontSize: 18 }}>⚠️</span>
+                        <span style={{ fontSize: '0.9em', fontWeight: 600, color: '#92400e' }}>
+                          Na co zwrócić uwagę
+                        </span>
+                      </div>
+                      <ul
+                        style={{
+                          paddingLeft: '1.1rem',
+                          margin: 0,
+                          fontSize: '0.9em',
+                          color: '#92400e',
+                        }}
+                      >
+                        {aiSections.improve.map((t, i) => (
+                          <li key={i}>{t}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Wskazówki antropometryczne */}
+                  {aiSections.anthropo.length > 0 && (
+                    <div
+                      style={{
+                        borderRadius: 6,
+                        padding: '0.5rem 0.75rem',
+                        background: '#eff6ff',
+                        border: '1px solid #bfdbfe',
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: '0.9em',
+                          fontWeight: 600,
+                          color: '#1d4ed8',
+                          marginBottom: 4,
+                        }}
+                      >
+                        Wskazówki antropometryczne
+                      </div>
+                      <ul
+                        style={{
+                          paddingLeft: '1.1rem',
+                          margin: 0,
+                          fontSize: '0.9em',
+                          color: '#1d4ed8',
+                        }}
+                      >
+                        {aiSections.anthropo.map((t, i) => (
+                          <li key={i}>{t}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
+
+            {/* FAZY BIEGU (technika) – zostawiamy jak miałeś, z phaseInfo */}
             <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.75rem' }}>
               <h4 style={{ marginTop: 0 }}>Fazy biegu (technika)</h4>
 
@@ -391,7 +587,7 @@ export default function WorkoutAnalysis() {
                   )}
                 </>
               ) : (
-                <p>Za mało danych, aby podzielić bieg na fazy.</p>
+                <p style={{ marginBottom: 0 }}>Za mało danych, aby podzielić bieg na fazy.</p>
               )}
             </div>
           </div>
