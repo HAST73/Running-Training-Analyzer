@@ -9,7 +9,7 @@ from django.core.files.storage import default_storage
 from django.views.decorators.csrf import csrf_exempt
 
 from fitparse import FitFile
-from users.models import UserProfile
+from users.models import UserProfile, ActivityLog
 
 from .models import Workout
 
@@ -267,6 +267,19 @@ def upload_gpx(request: HttpRequest, workout_id: int) -> JsonResponse:
         "gpx_data",
     ])
 
+    try:
+        ActivityLog.objects.create(
+            user=request.user,
+            action="workout_gpx_attached",
+            metadata={
+                "workout_id": workout.id,
+                "gpx_name": workout.gpx_name,
+                "gpx_size": workout.gpx_size,
+            },
+        )
+    except Exception:
+        pass
+
     # Return boolean for frontend compatibility
     return JsonResponse({"ok": True, "gpx_file": True})
 
@@ -401,7 +414,7 @@ def import_strava_workouts(request: HttpRequest) -> JsonResponse:
                 except Exception:
                     performed_at = None
 
-            Workout.objects.create(
+            w = Workout.objects.create(
                 user=request.user,
                 external_id=str(strava_id),
                 source="strava",
@@ -413,6 +426,19 @@ def import_strava_workouts(request: HttpRequest) -> JsonResponse:
                 raw_data=act,
             )
             imported += 1
+            try:
+                ActivityLog.objects.create(
+                    user=request.user,
+                    action="workout_imported_strava",
+                    metadata={
+                        "workout_id": w.id,
+                        "strava_id": str(strava_id),
+                        "distance_m": float(distance_m) if distance_m is not None else None,
+                        "duration_ms": int(duration_ms) if duration_ms is not None else None,
+                    },
+                )
+            except Exception:
+                pass
 
         if len(activities) < per_page:
             break
@@ -622,6 +648,19 @@ def _handle_trackpoints_json(request: HttpRequest, points) -> JsonResponse:
         },
     )
 
+    try:
+        ActivityLog.objects.create(
+            user=request.user,
+            action="workout_uploaded_trackpoints",
+            metadata={
+                "workout_id": workout.id,
+                "distance_m": float(total_m) if total_m is not None else None,
+                "duration_ms": int(duration_ms) if duration_ms is not None else None,
+            },
+        )
+    except Exception:
+        pass
+
     return JsonResponse(
         {"id": workout.id, "title": workout.title, "source": workout.source},
         status=201,
@@ -707,6 +746,20 @@ def _handle_adidas_json(request: HttpRequest, data) -> JsonResponse:
         raw_data=activity,
     )
 
+    try:
+        ActivityLog.objects.create(
+            user=request.user,
+            action="workout_uploaded_adidas",
+            metadata={
+                "workout_id": workout.id,
+                "external_id": external_id,
+                "distance_m": float(distance_m) if distance_m is not None else None,
+                "duration_ms": int(duration_ms) if duration_ms is not None else None,
+            },
+        )
+    except Exception:
+        pass
+
     return JsonResponse(
         {"id": workout.id, "title": workout.title, "source": workout.source},
         status=201,
@@ -784,6 +837,20 @@ def _handle_strava_fit(
         raw_data=raw_summary,
     )
 
+    try:
+        ActivityLog.objects.create(
+            user=request.user,
+            action="workout_uploaded_fit",
+            metadata={
+                "workout_id": workout.id,
+                "distance_m": float(total_distance_m) if total_distance_m is not None else None,
+                "duration_ms": float(total_timer_time) if total_timer_time is not None else None,
+                "file_name": original_name,
+            },
+        )
+    except Exception:
+        pass
+
     return JsonResponse(
         {"id": workout.id, "title": workout.title, "source": workout.source},
         status=201,
@@ -801,5 +868,15 @@ def delete_workout(request: HttpRequest, workout_id: int) -> JsonResponse:
     except Workout.DoesNotExist:
         return JsonResponse({"error": "Workout not found"}, status=404)
 
+    title = workout.title
+    wid = workout.id
     workout.delete()
+    try:
+        ActivityLog.objects.create(
+            user=request.user,
+            action="workout_deleted",
+            metadata={"workout_id": wid, "title": title},
+        )
+    except Exception:
+        pass
     return JsonResponse({"ok": True})

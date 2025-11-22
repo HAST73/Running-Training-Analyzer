@@ -7,6 +7,7 @@ from django.utils import timezone
 from django.conf import settings
 from django.urls import reverse
 from datetime import datetime, timezone as dt_timezone, timedelta
+from django.db import IntegrityError
 import json
 import os
 import requests
@@ -26,6 +27,8 @@ def session(request):
 			weight_kg = profile.weight_kg
 			needs_measurements = (profile.height_cm is None or profile.weight_kg is None)
 		pro_unlocked = Payment.objects.filter(user=request.user, status="paid").exists()
+		# Rezygnujemy z wymuszania zmiany nazwy – użytkownik może ją zmienić opcjonalnie
+		needs_username = False
 		return JsonResponse({
 			"authenticated": True,
 			"username": request.user.username,
@@ -33,6 +36,7 @@ def session(request):
 			"weight_kg": float(weight_kg) if weight_kg is not None else None,
 			"needs_measurements": needs_measurements,
 			"pro_unlocked": pro_unlocked,
+			"needs_username": needs_username,
 		})
 	return JsonResponse({"authenticated": False})
 
@@ -139,15 +143,53 @@ def strava_callback(request):
 	expires_at = token_data.get("expires_at")
 	expires_in = token_data.get("expires_in")
 
-	if not request.user.is_authenticated:
-		# Auto-create a local user if not logged in (simplified)
-		username = f"strava_{athlete.get('id')}"
-		user, _created = User.objects.get_or_create(username=username, defaults={"email": athlete.get("email", "")})
-		if _created:
-			UserProfile.objects.create(user=user, strava_athlete_id=str(athlete.get("id")))
-		auth_login(request, user)
-	profile = request.user.profile
-	profile.strava_athlete_id = str(athlete.get("id"))
+	athlete_id = str(athlete.get("id")) if athlete.get("id") is not None else None
+	existing_profile = None
+	if athlete_id:
+		existing_profile = UserProfile.objects.filter(strava_athlete_id=athlete_id).select_related("user").first()
+
+	import secrets
+	profile = None
+	if existing_profile:
+		# Reużyj istniejącego profilu i zaloguj jego użytkownika
+		auth_login(request, existing_profile.user)
+		profile = existing_profile
+	else:
+		if request.user.is_authenticated:
+			# Użyj obecnego użytkownika – przypnij athlete_id jeśli brak
+			profile = getattr(request.user, "profile", None)
+			if profile and athlete_id:
+				profile.strava_athlete_id = athlete_id
+			if not profile:
+				try:
+					profile = UserProfile.objects.create(user=request.user, strava_athlete_id=athlete_id)
+				except IntegrityError:
+					# Wyścig: ktoś już utworzył – pobierz i użyj
+					profile = UserProfile.objects.filter(strava_athlete_id=athlete_id).first()
+					if profile:
+						auth_login(request, profile.user)
+		else:
+			# Brak zalogowanego i brak istniejącego profilu – tworzymy świeżego usera + profil
+			base_username = f"strava_{athlete_id}" if athlete_id else "strava_user"
+			username = base_username
+			counter = 1
+			while User.objects.filter(username=username).exists():
+				counter += 1
+				username = f"{base_username}_{counter}"
+			password = secrets.token_urlsafe(12)
+			user = User.objects.create_user(username=username, password=password, email=athlete.get("email", ""))
+			try:
+				profile = UserProfile.objects.create(user=user, strava_athlete_id=athlete_id)
+			except IntegrityError:
+				# Jeśli constraint zadziałał, pobierz istniejący i zaloguj jego właściciela
+				profile = UserProfile.objects.filter(strava_athlete_id=athlete_id).first()
+				if profile:
+					user = profile.user
+			auth_login(request, user)
+
+	# Aktualizacja tokenów na wybranym profilu
+	if profile and athlete_id:
+		profile.strava_athlete_id = athlete_id
 	profile.strava_access_token = access_token
 	profile.strava_refresh_token = refresh_token
 	if isinstance(expires_at, (int, float)):
@@ -170,6 +212,7 @@ def profile(request):
 	profile = request.user.profile
 	if request.method == "GET":
 		return JsonResponse({
+			"username": request.user.username,
 			"height_cm": profile.height_cm,
 			"weight_kg": float(profile.weight_kg) if profile.weight_kg is not None else None,
 		})
@@ -179,9 +222,25 @@ def profile(request):
 		data = json.loads(request.body.decode())
 	except json.JSONDecodeError:
 		return JsonResponse({"error": "Invalid JSON"}, status=400)
+	# Aktualizacja nazwy użytkownika (opcjonalna)
+	new_username = (data.get("username") or "").strip()
 	height_cm = data.get("height_cm")
 	weight_kg = data.get("weight_kg")
 	changed = {}
+	# Najpierw nazwa użytkownika, aby zwrócić sensowny błąd zajętej nazwy
+	if new_username:
+		# Jeżeli to ta sama nazwa – ignoruj
+		if new_username != request.user.username:
+			# Prosta walidacja – tylko litery/cyfry/._-
+			import re
+			if not re.match(r"^[A-Za-z0-9._-]{3,32}$", new_username):
+				return JsonResponse({"error": "Nieprawidłowa nazwa (3-32 znaki, litery/cyfry . _ -)"}, status=400)
+			# Sprawdź unikalność
+			if User.objects.filter(username=new_username).exclude(id=request.user.id).exists():
+				return JsonResponse({"error": "Nazwa użytkownika zajęta"}, status=409)
+			request.user.username = new_username
+			request.user.save(update_fields=["username"])
+			changed["username"] = new_username
 	try:
 		if height_cm is not None and str(height_cm).strip() != "":
 			profile.height_cm = int(height_cm)
@@ -194,3 +253,60 @@ def profile(request):
 		return JsonResponse({"error": "Invalid values"}, status=400)
 	ActivityLog.objects.create(user=request.user, action="profile_update", metadata=changed)
 	return JsonResponse({"status": "ok", **changed})
+
+
+@csrf_exempt
+def recent_activity(request):
+	"""Return recent activity log items for the current user.
+
+	Query params:
+	  - `limit`: number of items to return (default 20, min 5, max 50)
+	"""
+	if not request.user.is_authenticated:
+		return JsonResponse({"error": "auth required"}, status=401)
+	if request.method != "GET":
+		return JsonResponse({"error": "Method not allowed"}, status=405)
+
+	try:
+		limit = int(request.GET.get("limit", "20"))
+	except ValueError:
+		limit = 20
+	limit = max(5, min(50, limit))
+
+	logs = ActivityLog.objects.filter(user=request.user).order_by("-created_at")[:limit]
+	items = [
+		{
+			"id": log.id,
+			"action": log.action,
+			"metadata": log.metadata or {},
+			"created_at": log.created_at.isoformat(),
+		}
+		for log in logs
+	]
+	return JsonResponse({"items": items})
+
+
+@csrf_exempt
+def delete_activity(request, activity_id: int):
+	"""Delete a single activity log entry of the current user."""
+	if not request.user.is_authenticated:
+		return JsonResponse({"error": "auth required"}, status=401)
+	if request.method != "DELETE":
+		return JsonResponse({"error": "Method not allowed"}, status=405)
+	try:
+		log = ActivityLog.objects.get(id=activity_id, user=request.user)
+	except ActivityLog.DoesNotExist:
+		return JsonResponse({"error": "not found"}, status=404)
+	log.delete()
+	return JsonResponse({"ok": True})
+
+
+@csrf_exempt
+def clear_activity(request):
+	"""Clear all activity logs for the current user."""
+	if not request.user.is_authenticated:
+		return JsonResponse({"error": "auth required"}, status=401)
+	if request.method not in ("POST", "DELETE"):
+		return JsonResponse({"error": "Method not allowed"}, status=405)
+	ActivityLog.objects.filter(user=request.user).delete()
+	return JsonResponse({"ok": True})

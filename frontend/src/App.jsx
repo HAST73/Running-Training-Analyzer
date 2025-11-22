@@ -8,6 +8,7 @@ import Social from './components/Social';
 import Events from './components/Events';
 import TrainingPlans from './components/TrainingPlans';
 import Profile from './components/Profile';
+import Notifications from './components/Notifications';
 
 function App() {
   // Minimalny hash-router – ignorujemy część po '?' (parametry)
@@ -63,6 +64,9 @@ function App() {
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
 
+  // Po Strava OAuth wymuś jednorazowe ustawienie nazwy użytkownika
+  // Usunięto wymuszanie zmiany nazwy – użytkownik może edytować ją opcjonalnie na profilu
+
   const handleLogout = async () => {
     await fetch('http://127.0.0.1:8000/api/logout/', { method: 'POST', credentials: 'include' });
     setSession({ loading: false, authenticated: false });
@@ -82,6 +86,11 @@ function App() {
     <div>
       <h1 className="app-logo">
         <img src="/materials/logo.png" alt="Running Training Analyzer" />
+        {authed && (
+          <div className="app-header-actions">
+            <Notifications />
+          </div>
+        )}
       </h1>
       <nav>
         <div className="nav-left">
