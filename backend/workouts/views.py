@@ -437,7 +437,21 @@ def upload_workout(request: HttpRequest) -> JsonResponse:
 
     content_type = request.content_type or ""
 
-    # 1) Czysty JSON w body (Adidas)
+    # Pomocnicza funkcja: rozstrzyga, czy to Adidas activity czy trackpoints.
+    def _dispatch_json_payload(data):
+        # 1) Najpierw spróbuj Adidas JSON – szukamy obiektu z "features"
+        candidate = _find_adidas_activity(data)
+        if candidate is not None:
+            return _handle_adidas_json(request, data)
+
+        # 2) Jeśli to nie wygląda na Adidas activity, sprawdź czy to trackpoints
+        if _is_trackpoints_payload(data):
+            return _handle_trackpoints_json(request, data)
+
+        # 3) Fallback – spróbuj jeszcze raz jako Adidas, żeby dostać ładny komunikat błędu
+        return _handle_adidas_json(request, data)
+
+    # 1) Czysty JSON w body (Adidas / trackpoints)
     if content_type.startswith("application/json"):
         try:
             body = request.body.decode("utf-8")
@@ -445,12 +459,9 @@ def upload_workout(request: HttpRequest) -> JsonResponse:
         except Exception:
             return JsonResponse({"error": "Invalid JSON body"}, status=400)
 
-        # Rozpoznaj typ ładunku: Adidas activity z features vs lista punktów GPS
-        if _is_trackpoints_payload(data):
-            return _handle_trackpoints_json(request, data)
-        return _handle_adidas_json(request, data)
+        return _dispatch_json_payload(data)
 
-    # 2) multipart/form-data – plik (Adidas JSON albo Strava FIT)
+    # 2) multipart/form-data – plik (Adidas JSON / trackpoints / Strava FIT)
     if content_type.startswith("multipart/form-data"):
         file = request.FILES.get("file")
         if not file:
@@ -462,21 +473,19 @@ def upload_workout(request: HttpRequest) -> JsonResponse:
         # Proste logowanie diagnostyczne formatu (tylko na czas debugowania)
         try:
             raw_debug = content.decode("utf-8", errors="ignore")
-            # ucinamy, żeby nie spamować logów
-            snippet = raw_debug[:500]
+            snippet = raw_debug[:500]  # ucinamy, żeby nie spamować logów
             print("[UPLOAD_WORKOUT] Raw file snippet:", snippet)
         except Exception:
             pass
 
-        # --- spróbuj jako Adidas JSON / lista punktów ---
+        # --- spróbuj jako Adidas JSON / trackpoints ---
         try:
             raw = content.decode("utf-8")
             data = json.loads(raw)
-            if _is_trackpoints_payload(data):
-                return _handle_trackpoints_json(request, data)
-            return _handle_adidas_json(request, data)
+            return _dispatch_json_payload(data)
         except Exception:
-            pass  # nie wygląda jak poprawny JSON Adidasa
+            # nie wygląda jak poprawny JSON Adidasa / trackpoints
+            pass
 
         # --- spróbuj jako FIT (Strava) ---
         try:
@@ -491,13 +500,14 @@ def upload_workout(request: HttpRequest) -> JsonResponse:
                 status=400,
             )
 
-    # 3) fallback – jeśli body wygląda jak JSON, potraktuj jak Adidas
+    # 3) fallback – jeśli body wygląda jak JSON, potraktuj jak Adidas / trackpoints
     try:
         body = request.body.decode("utf-8")
         data = json.loads(body)
-        return _handle_adidas_json(request, data)
+        return _dispatch_json_payload(data)
     except Exception:
         return JsonResponse({"error": "Unsupported content type"}, status=400)
+
 
 
 # ---------- ADIDAS JSON PARSER (POPRAWIONY) ----------

@@ -6,6 +6,7 @@ from django.http import HttpRequest, JsonResponse
 from workouts.models import Workout
 from .utils import analyze_track, parse_gpx
 import statistics
+import json
 
 def _safe_float(value):
     """Zwraca float albo None, jeżeli nie da się przekonwertować."""
@@ -75,8 +76,16 @@ def workout_analysis(request: HttpRequest, workout_id: int) -> JsonResponse:
     adidas_device = None
 
     raw = w.raw_data
-    if not isinstance(raw, dict):
+
+    # nowy kod – obsługa zarówno JSONField (dict), jak i TextField (string)
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            raw = {}
+    elif not isinstance(raw, dict) or raw is None:
         raw = {}
+
 
     # proste pola
     calories = raw.get("calories") or raw.get("total_calories")
