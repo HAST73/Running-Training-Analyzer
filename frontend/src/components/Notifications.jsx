@@ -66,6 +66,13 @@ export default function Notifications() {
     fetchItems();
   }, []);
 
+  // Fetch fresh items immediately whenever dropdown is opened
+  useEffect(() => {
+    if (open) {
+      fetchItems();
+    }
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     const id = setInterval(fetchItems, 60000);
