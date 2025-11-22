@@ -1,0 +1,77 @@
+/* Social feature styles (extracted placeholder)
+   Existing components use these class names. Original index.css had no definitions.
+   Keep styles minimal to avoid layout regressions. */
+
+.social-page { max-width: 1200px; margin: 2rem auto; padding: 0 1rem; }
+.social-header h2 { margin: 0 0 0.25rem; }
+.social-header p { margin: 0 0 1rem; color: #475569; }
+
+.social-tabs { display: flex; gap: 0.6rem; margin-bottom: 1rem; }
+.social-tab { background: #e2e8f0; border: none; padding: 0.4rem 0.9rem; border-radius: 20px; cursor: pointer; font-size: 0.85rem; color: #0f172a; }
+.social-tab.active { background: #2563eb; color: #fff; }
+
+.social-layout { display: grid; grid-template-columns: minmax(0,1fr) 340px; gap: 1.4rem; }
+.social-left { display: flex; flex-direction: column; gap: 1.2rem; }
+.social-right { display: flex; flex-direction: column; gap: 1.2rem; }
+
+.card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 0.9rem 1rem; box-shadow: 0 4px 12px rgba(15,23,42,0.06); }
+
+/* Post creation */
+.social-create-card h3 { margin-top: 0; }
+.post-form { display: flex; flex-direction: column; gap: 0.6rem; }
+.post-form textarea { width: 100%; min-height: 80px; resize: vertical; padding: 0.6rem 0.7rem; font-family: inherit; border: 1px solid #cbd5e1; border-radius: 8px; }
+.post-form-row { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+.post-form-row select { flex: 1; padding: 0.45rem 0.6rem; border: 1px solid #cbd5e1; border-radius: 8px; background: #f8fafc; }
+.file-input-label { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.8rem; background: #1d4ed8; color: #fff; font-size: 0.75rem; border-radius: 8px; cursor: pointer; }
+.file-input-label input { display: none; }
+.post-form-actions { display: flex; justify-content: flex-end; }
+
+/* Feed */
+.social-feed-card h3 { margin-top: 0; }
+.feed-info { font-size: 0.8rem; color: #64748b; }
+.post-card { border: 1px solid #e2e8f0; border-radius: 10px; padding: 0.7rem 0.85rem; margin-bottom: 0.8rem; background: #fff; }
+.post-head { display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; color: #475569; margin-bottom: 0.4rem; }
+.post-date { font-size: 0.65rem; color: #64748b; }
+.post-workout-ref { font-size: 0.65rem; color: #2563eb; margin-bottom: 0.3rem; }
+.post-text { font-size: 0.85rem; line-height: 1.35; margin-bottom: 0.5rem; white-space: pre-line; }
+.post-image-wrapper { margin: 0.4rem 0; border-radius: 10px; overflow: hidden; }
+.post-image { display: block; width: 100%; height: auto; }
+.post-actions { display: flex; gap: 0.6rem; }
+.post-actions button { background: #e2e8f0; border: none; padding: 0.35rem 0.75rem; border-radius: 20px; cursor: pointer; font-size: 0.7rem; }
+.post-actions button.liked { background: #2563eb; color: #fff; }
+.post-actions button:hover { filter: brightness(0.95); }
+
+/* Search / friends */
+.search-row { display: flex; gap: 0.5rem; }
+.search-row input { flex: 1; padding: 0.45rem 0.6rem; border-radius: 8px; border: 1px solid #cbd5e1; }
+.btn-secondary { background: #0f172a; color: #38bdf8; border: 1px solid #334155; padding: 0.45rem 0.75rem; border-radius: 8px; cursor: pointer; font-size: 0.75rem; }
+.btn-secondary:hover { background: #1e293b; }
+.search-results { margin-top: 0.6rem; display: flex; flex-direction: column; gap: 0.4rem; }
+.search-user { display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; padding: 0.45rem 0.6rem; border: 1px solid #e2e8f0; border-radius: 8px; }
+.btn-mini { background: #2563eb; color: #fff; border: none; padding: 0.3rem 0.6rem; font-size: 0.65rem; border-radius: 6px; cursor: pointer; }
+.btn-mini.btn-ghost { background: #e2e8f0; color: #0f172a; }
+.btn-mini:hover { filter: brightness(0.95); }
+
+.social-requests-card h3 { margin-top: 0; }
+.fr-item { display: flex; justify-content: space-between; align-items: center; padding: 0.4rem 0.6rem; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 0.4rem; font-size: 0.75rem; }
+.fr-item.outgoing { background: #f1f5f9; }
+.fr-name { font-weight: 600; }
+.fr-actions { display: flex; gap: 0.4rem; }
+.fr-status { font-size: 0.65rem; color: #64748b; }
+.muted { font-size: 0.7rem; color: #64748b; }
+
+/* Comments panel */
+.comments-panel { position: fixed; top: 0; right: 0; width: 340px; height: 100vh; background: #ffffff; border-left: 1px solid #e2e8f0; box-shadow: -4px 0 16px rgba(0,0,0,0.08); display: flex; flex-direction: column; z-index: 50; }
+.comments-head { display: flex; justify-content: space-between; align-items: center; padding: 0.6rem 0.8rem; border-bottom: 1px solid #e2e8f0; }
+.comments-loading, .comments-empty { padding: 0.6rem 0.8rem; font-size: 0.75rem; color: #64748b; }
+.comments-list { flex: 1; overflow-y: auto; padding: 0.6rem 0.8rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.comment-item { font-size: 0.7rem; background: #f8fafc; padding: 0.45rem 0.55rem; border-radius: 8px; position: relative; }
+.comment-date { position: absolute; bottom: 4px; right: 6px; font-size: 0.55rem; color: #94a3b8; }
+.comment-form { display: flex; gap: 0.4rem; padding: 0.6rem 0.8rem; border-top: 1px solid #e2e8f0; }
+.comment-form input { flex: 1; padding: 0.45rem 0.6rem; border: 1px solid #cbd5e1; border-radius: 8px; }
+.comment-form button { background: #2563eb; color: #fff; border: none; padding: 0.45rem 0.75rem; border-radius: 8px; font-size: 0.7rem; cursor: pointer; }
+
+@media (max-width: 900px) {
+  .social-layout { grid-template-columns: 1fr; }
+  .comments-panel { position: fixed; width: 100%; height: 60vh; bottom: 0; top: auto; border-left: none; border-top: 1px solid #e2e8f0; }
+}

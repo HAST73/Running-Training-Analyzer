@@ -1,0 +1,9 @@
+.profile-page { max-width:520px; margin:2.5rem auto; background:#fff; padding:2rem 2.2rem; border-radius:12px; box-shadow:0 8px 24px rgba(15,23,42,0.12); }
+.profile-page h2 { margin-top:0; margin-bottom:1.4rem; font-weight:700; color:#0f172a; font-size:1.4rem; }
+.profile-form { display:flex; flex-direction:column; gap:1.6rem; }
+.profile-form .form-row label { display:flex; flex-direction:column; gap:0.5rem; font-weight:600; font-size:0.9rem; color:#0f172a; }
+.profile-form input { padding:0.65rem 0.75rem; border-radius:8px; border:1px solid #cbd5e1; font-size:0.95rem; background:#f8fafc; }
+.profile-form input:focus { outline:none; border-color:#2563eb; box-shadow:0 0 0 2px #2563eb33; background:#fff; }
+.profile-form .form-actions { margin-top:0.2rem; }
+.profile-form .form-success { color:#16a34a; font-size:0.85rem; margin:0; }
+.profile-form .form-error { color:#dc2626; font-size:0.85rem; margin:0; }

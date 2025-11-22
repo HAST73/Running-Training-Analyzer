@@ -2,11 +2,11 @@ import React, { useEffect, useState } from 'react';
 import Home from './components/Home';
 import Login from './components/Login';
 import Register from './components/Register';
-import Workouts from './components/Workouts';
-import WorkoutAnalysis from './components/WorkoutAnalysis';
-import Social from './components/Social';
+import Workouts from './components/workouts/Workouts';
+import WorkoutAnalysis from './components/workouts/WorkoutAnalysis';
+import Social from './components/social/Social';
 import Events from './components/Events';
-import TrainingPlans from './components/TrainingPlans';
+import TrainingPlans from './components/workouts/TrainingPlans';
 import Profile from './components/Profile';
 import Notifications from './components/Notifications';
 
