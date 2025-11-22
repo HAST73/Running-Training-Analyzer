@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
+import { getCSRFToken } from '../../utils/csrf';
 
-export default function CommentsPanel({ postId, onClose }) {
+export default function CommentsPanel({ postId, onClose, onCommentAdded }) {
   const [comments, setComments] = useState([]);
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(false);
@@ -24,13 +25,14 @@ export default function CommentsPanel({ postId, onClose }) {
       const res = await fetch(`http://127.0.0.1:8000/api/social/posts/${postId}/comments/`, {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
         body: JSON.stringify({ text })
       });
       const data = await res.json();
       if (data.comment) {
         setComments((prev) => [...prev, data.comment]);
         setText('');
+        if (onCommentAdded) onCommentAdded(postId);
       }
     } catch (e) { /* ignore */ }
   };

@@ -1,10 +1,19 @@
 import React, { useEffect, useState } from 'react';
+import { getCSRFToken } from '../../utils/csrf';
 import PostCard from './PostCard';
 import CommentsPanel from './CommentsPanel';
 
 function Social() {
   const [scope, setScope] = useState('global');
   const [posts, setPosts] = useState([]);
+    const [currentUser, setCurrentUser] = useState(null);
+    const fetchSessionUser = async () => {
+      try {
+        const res = await fetch('http://127.0.0.1:8000/api/session/', { credentials: 'include' });
+        const data = await res.json();
+        if (data.authenticated) setCurrentUser(data.username);
+      } catch (e) { /* ignore */ }
+    };
   const [loading, setLoading] = useState(false);
   const [text, setText] = useState('');
   const [workouts, setWorkouts] = useState([]);
@@ -14,7 +23,11 @@ function Social() {
   const [userQuery, setUserQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [friendRequests, setFriendRequests] = useState({ incoming: [], outgoing: [] });
+  const [acceptingIds, setAcceptingIds] = useState([]);
   const [frLoading, setFrLoading] = useState(false);
+  const [friends, setFriends] = useState([]);
+  const [friendsLoading, setFriendsLoading] = useState(false);
+  const [isGlobal, setIsGlobal] = useState(true);
 
   const fetchPosts = async () => {
     setLoading(true);
@@ -51,7 +64,17 @@ function Social() {
   };
 
   useEffect(() => { fetchPosts(); }, [scope]);
-  useEffect(() => { fetchWorkouts(); fetchFriendRequests(); }, []);
+  useEffect(() => { fetchWorkouts(); fetchFriendRequests(); fetchFriends(); fetchSessionUser(); }, []);
+
+  const fetchFriends = async () => {
+    setFriendsLoading(true);
+    try {
+      const res = await fetch('http://127.0.0.1:8000/api/social/friends/', { credentials: 'include' });
+      const data = await res.json();
+      setFriends(Array.isArray(data.friends) ? data.friends : []);
+    } catch (e) { /* ignore */ }
+    setFriendsLoading(false);
+  };
 
   const submitPost = async (e) => {
     e.preventDefault();
@@ -65,10 +88,12 @@ function Social() {
       if (hasText) form.append('text', text);
       if (hasWorkout) form.append('workout_id', workoutId);
       if (hasImage) form.append('image', imageFile);
+      form.append('is_global', isGlobal ? 'true' : 'false');
 
       const res = await fetch('http://127.0.0.1:8000/api/social/posts/', {
         method: 'POST',
         credentials: 'include',
+        headers: { 'X-CSRFToken': getCSRFToken() },
         body: form
       });
       const data = await res.json();
@@ -77,6 +102,7 @@ function Social() {
         setText('');
         setWorkoutId('');
         setImageFile(null);
+        setIsGlobal(true);
       }
     } catch (e) { /* ignore */ }
   };
@@ -85,6 +111,18 @@ function Social() {
     setPosts((prev) =>
       prev.map(p => p.id === id ? { ...p, liked, likes_count: likesCount } : p)
     );
+  };
+
+  const onReaction = (id, reactionCounts, userReactions) => {
+    setPosts(prev => prev.map(p => p.id === id ? { ...p, reaction_counts: reactionCounts, user_reactions: userReactions } : p));
+  };
+
+  const onDeletePost = (id) => {
+    setPosts(prev => prev.filter(p => p.id !== id));
+  };
+
+  const onCommentAdded = (id) => {
+    setPosts(prev => prev.map(p => p.id === id ? { ...p, comments_count: (p.comments_count || 0) + 1 } : p));
   };
 
   const searchUsers = async () => {
@@ -105,7 +143,7 @@ function Social() {
       const res = await fetch('http://127.0.0.1:8000/api/social/friend_requests/', {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
         body: JSON.stringify({ username })
       });
       await res.json();
@@ -115,18 +153,32 @@ function Social() {
 
   const respondFriendRequest = async (id, action) => {
     try {
+      setAcceptingIds(prev => [...prev, id]);
       const res = await fetch(
         `http://127.0.0.1:8000/api/social/friend_requests/${id}/respond/`,
         {
           method: 'POST',
           credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
           body: JSON.stringify({ action })
         }
       );
-      await res.json();
-      fetchFriendRequests();
-      if (scope === 'friends') fetchPosts();
+      const data = await res.json();
+      if (data.status === 'accepted' && data.friend) {
+        setFriends(prev => prev.some(f => f.username === data.friend) ? prev : [...prev, { id: data.friend_id || id, username: data.friend }]);
+        // animate removal
+        setFriendRequests(prev => ({
+          ...prev,
+          incoming: prev.incoming.filter(fr => fr.id !== id)
+        }));
+        setTimeout(() => {
+          setAcceptingIds(prev => prev.filter(x => x !== id));
+        }, 600);
+        if (scope === 'friends') fetchPosts();
+      } else {
+        // refresh lists for reject or unexpected
+        fetchFriendRequests();
+      }
     } catch (e) { /* ignore */ }
   };
 
@@ -185,6 +237,24 @@ function Social() {
                     onChange={e => setImageFile(e.target.files[0])}
                   />
                 </label>
+                <div className="visibility-toggle">
+                  <label>
+                    <input
+                      type="radio"
+                      name="visibility"
+                      checked={isGlobal}
+                      onChange={() => setIsGlobal(true)}
+                    /> Globalne
+                  </label>
+                  <label>
+                    <input
+                      type="radio"
+                      name="visibility"
+                      checked={!isGlobal}
+                      onChange={() => setIsGlobal(false)}
+                    /> Tylko znajomi
+                  </label>
+                </div>
               </div>
               <div className="post-form-actions">
                 <button type="submit" className="btn-primary">
@@ -207,7 +277,10 @@ function Social() {
               <PostCard
                 key={p.id}
                 post={p}
+                currentUser={currentUser}
                 onLike={onLike}
+                onReaction={onReaction}
+                onDelete={onDeletePost}
                 onShowComments={setCommentsFor}
               />
             ))}
@@ -216,6 +289,21 @@ function Social() {
 
         {/* PRAWA KOLUMNA – znajomi / zaproszenia */}
         <aside className="social-right">
+          <div className="card social-friends-card">
+            <h3>Twoi znajomi</h3>
+            {friendsLoading && <div className="muted">Ładowanie...</div>}
+            {!friendsLoading && friends.length === 0 && (
+              <div className="muted">Brak zaakceptowanych znajomych</div>
+            )}
+            {!friendsLoading && friends.length > 0 && (
+              <ul className="friends-list">
+                {friends.map(f => (
+                  <li key={f.id}>{f.username}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+
           <div className="card social-search-card">
             <h3>Znajdź użytkownika</h3>
             <div className="search-row">
@@ -258,7 +346,7 @@ function Social() {
               <>
                 <h4>Do Ciebie</h4>
                 {friendRequests.incoming.map(fr => (
-                  <div key={fr.id} className="fr-item">
+                  <div key={fr.id} className={`fr-item ${acceptingIds.includes(fr.id) ? 'accepted' : ''}`}>
                     <span className="fr-name">{fr.from}</span>
                     <div className="fr-actions">
                       <button
@@ -298,6 +386,7 @@ function Social() {
         <CommentsPanel
           postId={commentsFor}
           onClose={() => setCommentsFor(null)}
+          onCommentAdded={onCommentAdded}
         />
       )}
     </section>

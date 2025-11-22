@@ -1,14 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import Home from './components/Home';
-import Login from './components/Login';
-import Register from './components/Register';
+import Home from './components/home/Home';
+import Login from './components/auth/Login';
+import Register from './components/auth/Register';
 import Workouts from './components/workouts/Workouts';
 import WorkoutAnalysis from './components/workouts/WorkoutAnalysis';
 import Social from './components/social/Social';
-import Events from './components/Events';
+import Events from './components/home/Events';
 import TrainingPlans from './components/workouts/TrainingPlans';
-import Profile from './components/Profile';
-import Notifications from './components/Notifications';
+import Profile from './components/profile/Profile';
+import Notifications from './components/common/Notifications';
 
 function App() {
   // Minimalny hash-router – ignorujemy część po '?' (parametry)

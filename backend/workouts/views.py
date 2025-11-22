@@ -253,12 +253,26 @@ def upload_gpx(request: HttpRequest, workout_id: int) -> JsonResponse:
             pass
         workout.gpx_file = None
 
-    # Store GPX inline in DB
-    content = file.read()
-    workout.gpx_name = getattr(file, "name", None)
-    workout.gpx_mime = getattr(file, "content_type", None) or "application/gpx+xml"
-    workout.gpx_size = len(content) if content is not None else None
-    workout.gpx_data = content
+    # Store GPX inline in DB (obsługa JSON trackpoints -> konwersja do GPX)
+    raw_content = file.read()
+    gpx_bytes = raw_content
+    mime = getattr(file, "content_type", None) or "application/gpx+xml"
+    name = getattr(file, "name", None)
+
+    if name and name.lower().endswith(".json"):
+        try:
+            parsed = json.loads(raw_content.decode("utf-8"))
+            points = _extract_trackpoints_list(parsed)
+            if points:
+                gpx_bytes = _trackpoints_to_gpx(points)
+                mime = "application/gpx+xml"
+        except Exception:
+            pass
+
+    workout.gpx_name = name
+    workout.gpx_mime = mime
+    workout.gpx_size = len(gpx_bytes) if gpx_bytes is not None else None
+    workout.gpx_data = gpx_bytes
     workout.save(update_fields=[
         "gpx_file",
         "gpx_name",
@@ -465,16 +479,18 @@ def upload_workout(request: HttpRequest) -> JsonResponse:
 
     # Pomocnicza funkcja: rozstrzyga, czy to Adidas activity czy trackpoints.
     def _dispatch_json_payload(data):
-        # 1) Najpierw spróbuj Adidas JSON – szukamy obiektu z "features"
+        # 1) Samsung live_data
+        if _is_samsung_live_data(data):
+            return _handle_samsung_live_data(request, data)
+        # 2) Adidas activity
         candidate = _find_adidas_activity(data)
         if candidate is not None:
             return _handle_adidas_json(request, data)
-
-        # 2) Jeśli to nie wygląda na Adidas activity, sprawdź czy to trackpoints
-        if _is_trackpoints_payload(data):
-            return _handle_trackpoints_json(request, data)
-
-        # 3) Fallback – spróbuj jeszcze raz jako Adidas, żeby dostać ładny komunikat błędu
+        # 3) Trackpoints zagnieżdżone
+        points = _extract_trackpoints_list(data)
+        if points is not None:
+            return _handle_trackpoints_json(request, points)
+        # 4) Fallback Adidas (błąd jeśli niepoprawny)
         return _handle_adidas_json(request, data)
 
     # 1) Czysty JSON w body (Adidas / trackpoints)
@@ -508,9 +524,16 @@ def upload_workout(request: HttpRequest) -> JsonResponse:
         try:
             raw = content.decode("utf-8")
             data = json.loads(raw)
+            if file.name:
+                lname = file.name.lower()
+                if "live_data" in lname and _is_samsung_live_data(data):
+                    return _handle_samsung_live_data(request, data)
+                if "location_data" in lname:
+                    pts = _extract_trackpoints_list(data)
+                    if pts:
+                        return _handle_trackpoints_json(request, pts)
             return _dispatch_json_payload(data)
         except Exception:
-            # nie wygląda jak poprawny JSON Adidasa / trackpoints
             pass
 
         # --- spróbuj jako FIT (Strava) ---
@@ -556,6 +579,200 @@ def _find_adidas_activity(payload):
             found = _find_adidas_activity(item)
             if found is not None:
                 return found
+    return None
+
+
+# ---------- SAMSUNG HEALTH (live_data + location_data) ----------
+
+def _is_samsung_live_data(payload) -> bool:
+    """Heurystyka dla Samsung live_data + uproszczonych list punktów z 'start_time'."""
+    def _points_list(obj):
+        return (
+            isinstance(obj, list)
+            and obj
+            and all(isinstance(x, dict) for x in obj)
+        )
+
+    # BEZPOŚREDNIO: lista punktów typu [{"start_time": ..., "distance": ...}, ...]
+    if isinstance(payload, list) and payload:
+        first = payload[0]
+        if isinstance(first, dict) and ("start_time" in first or "timestamp" in first):
+            return True
+
+    # Poprzednia logika pozostaje:
+    candidates = []
+    if isinstance(payload, dict):
+        for k in ["live_data", "samples", "data", "records"]:
+            if k in payload and _points_list(payload[k]):
+                candidates.append(payload[k])
+        for v in list(payload.values())[:20]:
+            if _points_list(v):
+                candidates.append(v)
+
+    for lst in candidates:
+        sample = lst[0]
+        if isinstance(sample, dict) and (
+            "timestamp" in sample or "time" in sample or "start_time" in sample
+        ):
+            for p in lst[:50]:
+                if not isinstance(p, dict):
+                    continue
+                keys = p.keys()
+                if any(m in keys for m in ["distance", "heart_rate", "calorie", "speed"]):
+                    return True
+    return False
+
+
+def _handle_samsung_live_data(request: HttpRequest, data) -> JsonResponse:
+    if not _is_samsung_live_data(data):
+        return JsonResponse({"error": "Nieprawidłowy format live_data (brak listy punktów)"}, status=400)
+
+    # Wyciągnij listę punktów
+    points_candidates = []
+    if isinstance(data, list):
+        points_candidates.append(data)
+    if isinstance(data, dict):
+        for k in ["live_data", "samples", "data", "records"]:
+            v = data.get(k)
+            if isinstance(v, list):
+                points_candidates.append(v)
+        # dodatkowo płytkie wartości
+        for v in list(data.values())[:30]:
+            if isinstance(v, list):
+                points_candidates.append(v)
+    # wybierz najdłuższą listę
+    points_raw = max(points_candidates, key=lambda lst: len(lst), default=[])
+    points = [p for p in points_raw if isinstance(p, dict)]
+    if not points:
+        return JsonResponse({"error": "Brak punktów w live_data"}, status=400)
+
+    # Normalizacja timestamp -> ms (akceptuj 'timestamp' / 'start_time' w ms lub s, albo 'time' ISO)
+    from datetime import datetime, timezone as dt_timezone
+    def _norm_ts(val):
+        if isinstance(val, (int, float)):
+            # wartości < 10^11 traktujemy jako sekundy
+            if val < 10_000_000_000:
+                return int(val * 1000)
+            return int(val)
+        return None
+    norm_points = []
+    for p in points:
+        ts_raw = p.get("timestamp")
+        if ts_raw is None:
+            ts_raw = p.get("start_time")
+        if ts_raw is None:
+            iso = p.get("time")
+            if isinstance(iso, str):
+                try:
+                    dt_val = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+                    ts_raw = int(dt_val.timestamp() * 1000)
+                except Exception:
+                    ts_raw = None
+        ts = _norm_ts(ts_raw) if ts_raw is not None else None
+        norm = dict(p)
+        norm["timestamp"] = ts
+        norm_points.append(norm)
+
+    # Odfiltruj punkty bez timestamp
+    norm_points = [p for p in norm_points if isinstance(p.get("timestamp"), (int, float))]
+    if not norm_points:
+        return JsonResponse({"error": "Brak poprawnych znaczników czasu w live_data"}, status=400)
+
+    norm_points.sort(key=lambda p: p.get("timestamp"))
+    start_ts = norm_points[0]["timestamp"]
+    end_ts = norm_points[-1]["timestamp"]
+    duration_ms = end_ts - start_ts if end_ts >= start_ts else None
+    performed_at = datetime.fromtimestamp(start_ts / 1000.0, tz=dt_timezone.utc) if isinstance(start_ts, (int, float)) else None
+
+    # Dystans – sprawdź czy monotoniczny (wartości całkowite) czy segmentowe
+    distances = []
+    monotonic = True
+    prev_d = None
+    for p in norm_points:
+        d = p.get("distance")
+        if isinstance(d, (int, float)):
+            distances.append(float(d))
+            if prev_d is not None and d < prev_d:
+                monotonic = False
+            prev_d = d
+    total_distance_m = None
+    if distances:
+        if monotonic:
+            total_distance_m = max(distances)
+        else:
+            cumulative_add = 0.0
+            prev = None
+            for d in distances:
+                if prev is not None and d > prev:
+                    cumulative_add += (d - prev)
+                prev = d
+            total_distance_m = cumulative_add or max(distances)
+
+    title = "Trening (Samsung)"
+    if total_distance_m:
+        title = f"Samsung {total_distance_m/1000.0:.1f} km"
+
+    # Statystyki tętna
+    hr_values = [p.get("heart_rate") for p in norm_points if isinstance(p.get("heart_rate"), (int, float))]
+    hr_stats = None
+    if hr_values:
+        hr_stats = {
+            "hr_min": min(hr_values),
+            "hr_max": max(hr_values),
+            "hr_avg": round(sum(hr_values) / len(hr_values), 1),
+        }
+
+    raw_slice = norm_points[:200]
+    raw_summary = {
+        "source": "samsung_live_data",
+        "points_count": len(norm_points),
+        "duration_ms": duration_ms,
+        "distance_m": total_distance_m,
+        "heart_rate_stats": hr_stats,
+        "sample": raw_slice,
+    }
+
+    workout = Workout.objects.create(
+        user=request.user,
+        external_id=None,
+        source="samsung",
+        manual=True,
+        performed_at=performed_at,
+        title=title,
+        distance_m=total_distance_m or None,
+        duration_ms=duration_ms,
+        raw_data=raw_summary,
+    )
+    try:
+        ActivityLog.objects.create(
+            user=request.user,
+            action="workout_uploaded_samsung_live",
+            metadata={
+                "workout_id": workout.id,
+                "distance_m": float(total_distance_m) if total_distance_m is not None else None,
+                "duration_ms": int(duration_ms) if duration_ms is not None else None,
+                "points": len(norm_points),
+            },
+        )
+    except Exception:
+        pass
+    print(f"[SAMSUNG_IMPORT] points={len(norm_points)} duration_ms={duration_ms} distance_m={total_distance_m}")
+    return JsonResponse({"id": workout.id, "title": workout.title, "source": workout.source}, status=201)
+
+
+def _extract_trackpoints_list(payload):
+    if _is_trackpoints_payload(payload):
+        return payload
+    if isinstance(payload, dict):
+        for v in payload.values():
+            pts = _extract_trackpoints_list(v)
+            if pts is not None:
+                return pts
+    elif isinstance(payload, list):
+        for item in payload:
+            pts = _extract_trackpoints_list(item)
+            if pts is not None:
+                return pts
     return None
 
 
@@ -665,6 +882,30 @@ def _handle_trackpoints_json(request: HttpRequest, points) -> JsonResponse:
         {"id": workout.id, "title": workout.title, "source": workout.source},
         status=201,
     )
+
+
+def _trackpoints_to_gpx(points):
+    lines = [
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
+        "<gpx version=\"1.1\" creator=\"running_analyzer\" xmlns=\"http://www.topografix.com/GPX/1/1\">",
+        "  <trk>",
+        "    <name>Route</name>",
+        "    <trkseg>",
+    ]
+    from datetime import datetime, timezone as dt_timezone
+    for p in points:
+        lat = p.get("lat") or p.get("latitude")
+        lon = p.get("lon") or p.get("longitude")
+        ts = p.get("ts") or p.get("timestamp")
+        if lat is None or lon is None:
+            continue
+        time_tag = ""
+        if isinstance(ts, (int, float)):
+            dt = datetime.fromtimestamp(ts / 1000.0, tz=dt_timezone.utc)
+            time_tag = f"<time>{dt.isoformat()}</time>"
+        lines.append(f"      <trkpt lat=\"{float(lat):.6f}\" lon=\"{float(lon):.6f}\">{time_tag}</trkpt>")
+    lines.extend(["    </trkseg>", "  </trk>", "</gpx>"])
+    return "\n".join(lines).encode("utf-8")
 
 
 def _handle_adidas_json(request: HttpRequest, data) -> JsonResponse:

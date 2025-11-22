@@ -113,6 +113,13 @@ def analyze_track(points: List[Dict[str, Optional[float]]]) -> Dict[str, Any]:
     total_dist = 0.0
     total_time = 0.0
     total_elev_gain = 0.0
+    # --- HEART RATE agregacja ---
+    hr_sum = 0.0
+    hr_cnt = 0
+    max_hr = None
+
+    km_bucket_hr_sum = 0.0
+    km_bucket_hr_cnt = 0
     cad_sum = 0.0
     cad_cnt = 0
     km_bucket_dist = 0.0
@@ -172,6 +179,17 @@ def analyze_track(points: List[Dict[str, Optional[float]]]) -> Dict[str, Any]:
         if dt:
             km_bucket_time += dt
 
+        # heart-rate accumulation
+        hval = cur.get("hr")
+        if isinstance(hval, (int, float)):
+            h = float(hval)
+            hr_sum += h
+            hr_cnt += 1
+            km_bucket_hr_sum += h
+            km_bucket_hr_cnt += 1
+            if max_hr is None or h > max_hr:
+                max_hr = h
+
         # Sample for chart ~ every 100m
         accum_since_sample += d
         if accum_since_sample >= 100.0:
@@ -199,17 +217,21 @@ def analyze_track(points: List[Dict[str, Optional[float]]]) -> Dict[str, Any]:
                 "pace_s": (split_time / 1.0) if split_time else None,
                 "elev_gain_m": km_bucket_elev if km_bucket_elev else 0.0,
                 "cadence_spm": (km_bucket_cad_sum / km_bucket_cad_cnt) if km_bucket_cad_cnt else None,
+                "hr_bpm": (km_bucket_hr_sum / km_bucket_hr_cnt) if km_bucket_hr_cnt else None,
             })
             km_index += 1
             km_bucket_dist = over
             km_bucket_elev = 0.0
             km_bucket_cad_sum = 0.0
             km_bucket_cad_cnt = 0
+            km_bucket_hr_sum = 0.0      # <-- DODAJ
+            km_bucket_hr_cnt = 0        # <-- DODAJ
 
         last = cur
 
     avg_pace = (total_time / (total_dist / 1000.0)) if total_dist > 0 and total_time > 0 else None
     avg_cadence = (cad_sum / cad_cnt) if cad_cnt else None
+    avg_hr = (hr_sum / hr_cnt) if hr_cnt else None
 
     # Compute ~200m fastest/slowest windows (by pace)
     fast_200: List[Tuple[float, float]] = []
@@ -277,6 +299,8 @@ def analyze_track(points: List[Dict[str, Optional[float]]]) -> Dict[str, Any]:
             "avg_pace_s_per_km": avg_pace,
             "elev_gain_m": total_elev_gain,
             "avg_cadence_spm": avg_cadence,
+            "avg_hr_bpm": avg_hr,
+            "max_hr_bpm": max_hr,
             "calories_kcal": estimate_calories(total_dist),
         },
         "track": track,

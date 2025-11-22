@@ -50,9 +50,12 @@ urlpatterns = [
     # Social / community endpoints
     path('api/social/posts/', social_views.list_or_create_posts, name='social_posts'),
     path('api/social/posts/<int:post_id>/likes/', social_views.toggle_like, name='social_post_like'),
+    path('api/social/posts/<int:post_id>/reactions/', social_views.toggle_reaction, name='social_post_reaction'),
     path('api/social/posts/<int:post_id>/comments/', social_views.comments, name='social_post_comments'),
+    path('api/social/posts/<int:post_id>/delete/', social_views.delete_post, name='social_post_delete'),
     path('api/social/search_users/', social_views.search_users, name='social_search_users'),
     path('api/social/friend_requests/', social_views.friend_requests, name='social_friend_requests'),
     path('api/social/friend_requests/<int:fr_id>/respond/', social_views.respond_friend_request, name='social_friend_request_respond'),
+    path('api/social/friends/', social_views.friends_list, name='social_friends'),
 ]
 urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

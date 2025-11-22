@@ -639,6 +639,129 @@ body {
   box-shadow: 0 8px 24px rgba(15,23,42,0.12);
 }
 
+/* ---------------------------------------------- */
+/*   SOCIAL – Friend request acceptance animation */
+/* ---------------------------------------------- */
+.fr-item.accepted {
+  animation: frAcceptedFade 0.6s ease forwards;
+  position: relative;
+}
+
+@keyframes frAcceptedFade {
+  0%   { background: #dcfce7; opacity: 1; }
+  40%  { background: #bbf7d0; }
+  70%  { opacity: 0.6; }
+  100% {
+    opacity: 0;
+    height: 0;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+}
+
+/* Podstawowy wygląd karty posta (jeśli jeszcze nie masz) */
+.post-card {
+  position: relative;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 12px 14px 10px;
+  margin-bottom: 12px;
+  background: #ffffff;
+}
+
+/* Reakcje & delete */
+.post-card .post-actions button.reacted {
+  background: #1d4ed8;
+  color: #fff;
+  border-radius: 6px;
+}
+
+.post-card .post-actions .delete-btn {
+  background: #dc2626;
+  color: #fff;
+  border-radius: 6px;
+}
+
+.post-card .post-actions .delete-btn:hover {
+  filter: brightness(1.1);
+}
+
+/* Own post highlight – ramka karty */
+.post-card.own-post {
+  border: 2px solid #2563eb;
+  box-shadow: 0 0 0 1px #2563eb22, 0 6px 16px rgba(37,99,235,0.2);
+}
+
+/* Głowa posta */
+.post-card .post-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 0.4rem;
+}
+
+.post-card .post-head-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.post-card .post-author {
+  font-weight: 600;
+}
+
+/* Highlight dla własnego posta */
+.post-card.own-post {
+  border: 2px solid #2563eb33;
+  background: linear-gradient(135deg, #eff6ff 0%, #ffffff 60%);
+  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.12);
+}
+
+/* Badge "Twój post" obok nicku */
+.post-card .post-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.post-card .post-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #22c55e;
+}
+
+/* Reakcje i usuń – zostaw jak miałeś, ewentualnie lekki padding */
+.post-card .post-actions {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.post-card .post-actions button {
+  border-radius: 999px;
+}
+.post-card .post-actions button.reacted {
+  background: #1d4ed8;
+  color: #fff;
+}
+.post-card .post-actions .delete-btn {
+  background: #dc2626;
+  color: #fff;
+}
+
+
+
+
 .profile-page h2 {
   margin-top: 0;
   margin-bottom: 1.4rem;
