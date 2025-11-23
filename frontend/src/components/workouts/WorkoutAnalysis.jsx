@@ -33,8 +33,12 @@ function fmtTime(totalSec) {
  * - elev (wysokość) - szara przerywana
  * - hr (tętno) - czerwona linia (NOWOŚĆ)
  */
-function PaceElevationChart({ km, pace, elev, hr }) {
-  const w = 820; const h = 220; const pad = 30; // Zwiększyłem nieco wysokość dla czytelności
+function PaceElevationChart({ km, pace, elev, hr, full = false }) {
+  // Dynamic sizing: in fullscreen take most of viewport, else compact.
+// Zmieniamy 520 na 1000 (żeby bazowo był szeroki) i pad na 50 (żeby zmieścił się napis pod osią)
+  const w = full ? Math.max(960, window.innerWidth - 80) : 1000; 
+  const h = full ? Math.max(420, window.innerHeight - 180) : 300; 
+  const pad = 65;
   if (!km || km.length === 0) return <div style={{ height: h, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Brak danych do wykresu</div>;
 
   const xMin = 0, xMax = km[km.length - 1];
@@ -93,25 +97,113 @@ function PaceElevationChart({ km, pace, elev, hr }) {
     }).join(' ');
   }
 
-  return (
-    <svg width={w} height={h} role="img" style={{ display: 'block', margin: '0 auto' }}>
-      <rect x={0} y={0} width={w} height={h} fill="#fff" stroke="#e5e7eb" rx={8} />
-      
-      {/* Wysokość - szary przerywany */}
-      {eVals.length > 0 && <path d={ePath} stroke="#9ca3af" strokeDasharray="4 3" strokeWidth="1" fill="none" />}
-      
-      {/* Tempo - niebieski */}
-      {pVals.length > 0 && <path d={pPath} stroke="#2563eb" strokeWidth="2" fill="none" />}
-      
-      {/* Tętno - czerwony (jeśli jest) */}
-      {hVals.length > 0 && <path d={hPath} stroke="#dc2626" strokeWidth="1.5" fill="none" opacity="0.8" />}
+  // Generate simple y ticks for pace
+  const paceTicks = (() => {
+    if (!pVals.length) return [];
+    const out = [];
+    const steps = 5;
+    for (let i=0;i<steps;i++) {
+      const t = i/(steps-1);
+      out.push(pMin + t*(pMax-pMin));
+    }
+    return out;
+  })();
+  const fmtPaceTick = v => {
+    const m = Math.floor(v/60); const s = Math.round(v%60).toString().padStart(2,'0');
+    return `${m}:${s}`;
+  };
 
-      {/* Legenda */}
-      <g transform={`translate(${pad}, 16)`}>
-        <text x={0} y={0} fontSize={12} fill="#2563eb" fontWeight="600">tempo</text>
-        {eVals.length > 0 && <text x={50} y={0} fontSize={12} fill="#6b7280">wysokość</text>}
-        {hVals.length > 0 && <text x={120} y={0} fontSize={12} fill="#dc2626" fontWeight="600">tętno</text>}
+  // === Interactivity (tooltip) ===
+  const [hoverIdx, setHoverIdx] = useState(null);
+  const [mouseKm, setMouseKm] = useState(null);
+  function handleMove(e) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const plotW = w - 2 * pad;
+    const rel = (mx - pad) / plotW;
+    const relClamped = Math.min(1, Math.max(0, rel));
+    const kmPos = xMin + relClamped * (xMax - xMin);
+    setMouseKm(kmPos);
+    // znajdź najbliższy indeks
+    let bestIdx = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i < km.length; i++) {
+      const d = Math.abs(km[i] - kmPos);
+      if (d < bestDist) { bestDist = d; bestIdx = i; }
+    }
+    setHoverIdx(bestIdx);
+  }
+  function handleLeave() { setHoverIdx(null); setMouseKm(null); }
+
+  return (
+      <svg 
+        viewBox={`0 0 ${w} ${h}`} 
+        role="img" 
+        style={{ width: '100%', height: 'auto', display: 'block' }} 
+        onMouseMove={handleMove} 
+        onMouseLeave={handleLeave}
+      >
+      <rect x={0} y={0} width={w} height={h} fill="#fff" stroke="#e5e7eb" rx={8} />
+      {/* Horizontal grid */}
+      {paceTicks.map((pt,i) => (
+        <line key={i} x1={pad} x2={w-pad} y1={yP(pt)} y2={yP(pt)} stroke="#f1f5f9" />
+      ))}
+      {/* Height path */}
+      {eVals.length > 0 && <path d={ePath} stroke="#9ca3af" strokeDasharray="4 3" strokeWidth="1" fill="none" />}
+      {/* Pace path */}
+      {pVals.length > 0 && <path d={pPath} stroke="#2563eb" strokeWidth={full?3:2} fill="none" />}
+      {/* HR path */}
+      {hVals.length > 0 && <path d={hPath} stroke="#dc2626" strokeWidth={full?2.2:1.5} fill="none" opacity="0.85" />}
+      {/* Legend */}
+      <g transform={`translate(${pad}, ${pad-10})`}>
+        <text x={0} y={0} fontSize={12} fill="#2563eb" fontWeight="600">tempo (min/km)</text>
+        {eVals.length > 0 && <text x={120} y={0} fontSize={12} fill="#6b7280">wysokość (m)</text>}
+        {hVals.length > 0 && <text x={230} y={0} fontSize={12} fill="#dc2626" fontWeight="600">tętno (bpm)</text>}
+        {full && <text x={360} y={0} fontSize={12} fill="#334155">Tryb pełny ekran</text>}
       </g>
+      {/* X axis (km) */}
+      <line x1={pad} x2={w-pad} y1={h-pad+4} y2={h-pad+4} stroke="#e2e8f0" />
+      {km.map((kv,i) => (i % Math.max(1, Math.floor(km.length/12)) === 0) && (
+        <g key={i}>
+          <line x1={x(kv)} x2={x(kv)} y1={h-pad+4} y2={h-pad+10} stroke="#94a3b8" />
+          <text x={x(kv)} y={h-pad+24} fontSize={10} fill="#334155" textAnchor="middle">{kv.toFixed(1)} km</text>
+        </g>
+      ))}
+      <text
+        x={w / 2}
+        y={h - 15}
+        fontSize={11}
+        fill="#334155"
+        fontWeight={600}
+        textAnchor="middle"
+      >
+        Dystans
+      </text>
+
+      {/* Tooltip */}
+      {hoverIdx != null && km[hoverIdx] != null && (
+        <>
+          <line x1={x(km[hoverIdx])} x2={x(km[hoverIdx])} y1={pad} y2={h-pad} stroke="#94a3b8" strokeDasharray="3 3" />
+          {(() => {
+            const boxW = 140; const boxH = 70; const px = x(km[hoverIdx]);
+            const bx = Math.min(Math.max(px - boxW/2, pad), w - pad - boxW);
+            const by = pad + 4;
+            const paceVal = pace[hoverIdx];
+            const elevVal = elev[hoverIdx];
+            const hrVal = hr && hr[hoverIdx];
+            const paceStr = paceVal ? fmtPaceTick(paceVal) + ' min/km' : '-';
+            return (
+              <g>
+                <rect x={bx} y={by} width={boxW} height={boxH} rx={6} fill="#ffffff" stroke="#cbd5e1" />
+                <text x={bx+8} y={by+16} fontSize={11} fill="#2563eb">{paceStr}</text>
+                {hrVal != null && isFinite(hrVal) && <text x={bx+8} y={by+32} fontSize={11} fill="#dc2626">HR: {Math.round(hrVal)}</text>}
+                {elevVal != null && isFinite(elevVal) && <text x={bx+8} y={by+48} fontSize={11} fill="#475569">wys: {Math.round(elevVal)} m</text>}
+                <text x={bx+8} y={by+62} fontSize={10} fill="#64748b">km {km[hoverIdx].toFixed(2)}</text>
+              </g>
+            );
+          })()}
+        </>
+      )}
     </svg>
   );
 }
@@ -297,11 +389,19 @@ export default function WorkoutAnalysis() {
       const color = paceToColor(pace);
       lines.push({ positions: [[a.lat, a.lon], [b.lat, b.lon]], color });
     }
+    // expose gradient info for legend
+    if (pvals.length) {
+      lines.__paceLegend = {
+        min: Math.min(...pvals),
+        max: Math.max(...pvals)
+      };
+    }
     return lines;
   })();
 
   const splits = (data?.analysis?.splits) || [];
   const chart = data?.analysis?.chart || { km: [], pace_s: [], elev: [], hr: [] };
+  const [fullChart, setFullChart] = useState(false);
 
   let phaseInfo = null;
   if (splits.length >= 3) {
@@ -374,7 +474,14 @@ export default function WorkoutAnalysis() {
     return { value: val, status };
   }, [aiSections]);
   return (
-    <section>
+    // Trik "Breakout": position relative + left 50% + translate -50% sprawia, 
+    // że element ignoruje wąskiego rodzica i centruje się względem całego okna.
+  <section style={{ 
+    maxWidth: '800px',   // Ustawiamy szerokość na 1100px (lub mniej, np. 900px, jak wolisz)
+    width: '95%',         // Na telefonach zajmie 95% ekranu
+    margin: '2rem auto',  // 'auto' automatycznie wyśrodkuje element w poziomie!
+    paddingBottom: '3rem' 
+  }}>
       <h2 style={{ textAlign: 'center', marginBottom: '1rem' }}>Szczegółowa analiza biegu</h2>
       <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginBottom: '1rem' }}>
         <button onClick={handleBack}>Powrót</button>
@@ -384,7 +491,7 @@ export default function WorkoutAnalysis() {
       {error && <p style={{ color: 'red', textAlign: 'center' }}>{error}</p>}
 
       {!loading && !error && data && (
-        <div style={{ maxWidth: 900, margin: '0 auto' }}>
+        <div style={{ width: '100%' }}>
           <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '1rem', marginBottom: '1rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', rowGap: 8 }}>
               <div style={{ minWidth: 260 }}>
@@ -477,13 +584,36 @@ export default function WorkoutAnalysis() {
                 ))}
               </MapContainer>
             </div>
+            {polylines.__paceLegend && (
+              // ZMIANA: Dodano justifyContent: 'flex-end' aby wyrównać do prawej
+              <div style={{ marginTop: 8, display:'flex', justifyContent: 'flex-end', alignItems:'center', gap:12, fontSize:'0.75em' }}>
+                <div style={{ flex:'0 0 160px', height:14, background:'linear-gradient(90deg, hsl(120,70%,45%), hsl(60,80%,50%), hsl(30,85%,50%), hsl(0,80%,45%))', borderRadius:8, position:'relative' }}>
+                  <div style={{ position:'absolute', top:'100%', left:0, transform:'translateY(2px)', color:'#0f172a' }}>wolniej</div>
+                  <div style={{ position:'absolute', top:'100%', right:0, transform:'translateY(2px)', color:'#0f172a' }}>szybciej</div>
+                </div>
+              </div>
+            )}
           </div>
 
           <div style={{ marginBottom: '1rem' }}>
             <h4 style={{ margin: '0 0 8px 0' }}>Wykres tempa, wysokości i tętna</h4>
-            <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', padding: '10px 0' }}>
+            <div style={{ position:'relative', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', padding: '10px 0' }}>
+              <button onClick={() => setFullChart(true)} style={{ position:'absolute', top:8, right:8, fontSize:'0.75em', padding:'4px 8px', cursor:'pointer' }}>Pełny ekran</button>
               <PaceElevationChart km={chart.km} pace={chart.pace_s} elev={chart.elev} hr={chart.hr} />
             </div>
+            {fullChart && (
+              <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', zIndex:9999, display:'flex', flexDirection:'column' }}>
+                <div style={{ padding:'12px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', background:'#0f172a', color:'#f8fafc' }}>
+                  <strong>Wykres – pełny ekran</strong>
+                  <div style={{ display:'flex', gap:8 }}>
+                    <button onClick={() => setFullChart(false)} style={{ padding:'6px 10px', cursor:'pointer' }}>Zamknij</button>
+                  </div>
+                </div>
+                <div style={{ flex:1, background:'#fff', overflow:'auto', padding:'12px 0' }}>
+                  <PaceElevationChart full km={chart.km} pace={chart.pace_s} elev={chart.elev} hr={chart.hr} />
+                </div>
+              </div>
+            )}
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: '1rem' }}>

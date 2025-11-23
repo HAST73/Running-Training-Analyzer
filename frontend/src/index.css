@@ -1,15 +1,33 @@
 body {
   font-family: Arial, sans-serif;
-  /* index.css deprecated after modular split; retained as placeholder. */
+  margin: 0;
+  padding: 0;
+  background-color: #fff;
+  overflow-x: hidden; /* Zapobiega poziomym paskom przewijania */
+}
+
+/* Nowa klasa tylko dla Dashboardu */
+.home-hero-grid {
   display: grid;
-  grid-template-columns:
-    320px                 /* lewy widget – szerszy dla mapy */
-    minmax(420px, 620px)  /* filmik */
-    320px;                /* prawa kolumna dla symetrii */
-  gap: 64px;
-  width: min(1400px, 95vw);
-  margin-top: 10px;
+  grid-template-columns: 320px minmax(420px, 620px) 320px;
+  gap: 32px; /* Zmniejszyłem z 64px, żeby było zgrabniej */
+  width: min(1400px, 96vw);
+  margin: 20px auto; /* auto centruje cały kontener */
   justify-content: center;
+  align-items: start;
+}
+
+/* Responsywność dla Home (żeby się nie rozjeżdżało na laptopach) */
+@media (max-width: 1200px) {
+  .home-hero-grid {
+    grid-template-columns: 1fr; /* Jedna kolumna na mniejszych ekranach */
+    max-width: 600px;
+    gap: 24px;
+  }
+  /* Kolejność na mobilkach: Wideo pierwsze, potem lewa, potem prawa */
+  .home-col-left { order: 2; }
+  .home-col-center { order: 1; }
+  .home-col-right { order: 3; }
 }
 
 .home-col {
