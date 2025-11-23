@@ -118,9 +118,21 @@ function PaceElevationChart({ km, pace, elev, hr, full = false }) {
   const [mouseKm, setMouseKm] = useState(null);
   function handleMove(e) {
     const rect = e.currentTarget.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
+    
+    // 1. Pobierz pozycję myszki w pikselach (na ekranie)
+    const xPixel = e.clientX - rect.left;
+    
+    // 2. Oblicz skalę (ile jednostek SVG przypada na 1 piksel ekranu)
+    // 'w' to wewnętrzna szerokość SVG, 'rect.width' to szerokość na ekranie
+    const scaleX = w / rect.width;
+    
+    // 3. Przelicz piksele na jednostki SVG
+    const mx = xPixel * scaleX;
+
     const plotW = w - 2 * pad;
     const rel = (mx - pad) / plotW;
+    
+    // ... reszta kodu (bez zmian)
     const relClamped = Math.min(1, Math.max(0, rel));
     const kmPos = xMin + relClamped * (xMax - xMin);
     setMouseKm(kmPos);
