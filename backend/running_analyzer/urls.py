@@ -42,6 +42,7 @@ urlpatterns = [
     path('api/workouts/upload/', workout_views.upload_workout, name='workouts_upload'),
     path('api/workouts/<int:workout_id>/', workout_views.delete_workout, name='workouts_delete'),
     path('api/workouts/<int:workout_id>/gpx/', workout_views.upload_gpx, name='workouts_upload_gpx'),
+    path('api/workouts/<int:workout_id>/attach_hr/', workout_views.attach_hr, name='workouts_attach_hr'),
     path('api/workouts/import_strava/', workout_views.import_strava_workouts, name='workouts_import_strava'),
     path('api/events/', events_views.list_events, name='events_list'),
     path('api/workouts/<int:workout_id>/analysis/', analysis_views.workout_analysis, name='workout_analysis'),

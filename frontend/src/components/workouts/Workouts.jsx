@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { getCSRFToken } from '../../utils/csrf';
 
 function Workouts() {
   const [workouts, setWorkouts] = useState([]);
@@ -8,6 +9,7 @@ function Workouts() {
   const [error, setError] = useState('');
   const [sourceInfo, setSourceInfo] = useState('');
   const [uploadingGpxId, setUploadingGpxId] = useState(null);
+  const [uploadingHrId, setUploadingHrId] = useState(null);
 
   const fetchWorkouts = async () => {
     setLoading(true);
@@ -60,6 +62,40 @@ function Workouts() {
     }
   };
 
+  const handleHrUpload = async (event, workoutId) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setUploadingHrId(workoutId);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const csrf = getCSRFToken();
+      const res = await fetch(`http://127.0.0.1:8000/api/workouts/${workoutId}/attach_hr/`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'X-CSRFToken': csrf,
+        },
+        body: formData,
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(payload.error || 'Nie udało się dodać danych tętna.');
+      }
+      setWorkouts(prev => prev.map(w => w.id === workoutId ? { ...w, hr_stats: payload.hr_stats } : w));
+      setAdidasWorkouts(prev => prev.map(w => w.id === workoutId ? { ...w, hr_stats: payload.hr_stats } : w));
+      setStravaWorkouts(prev => prev.map(w => w.id === workoutId ? { ...w, hr_stats: payload.hr_stats } : w));
+      setSourceInfo('Dołączono dane tętna.');
+      setError('');
+    } catch (e) {
+      console.error(e);
+      setError('Nie udało się dołączyć pliku z tętnem.');
+    } finally {
+      setUploadingHrId(null);
+      event.target.value = '';
+    }
+  };
+
   useEffect(() => {
     fetchWorkouts();
   }, []);
@@ -70,12 +106,12 @@ function Workouts() {
 
     try {
       const formData = new FormData();
-      formData.append('file', file); // NAZWA "file" jest ważna – backend jej szuka
+      formData.append('file', file);
 
       const res = await fetch('http://127.0.0.1:8000/api/workouts/upload/', {
         method: 'POST',
         credentials: 'include',
-        body: formData, // bez ręcznego ustawiania Content-Type
+        body: formData,
       });
 
       if (!res.ok) {
@@ -239,8 +275,23 @@ function Workouts() {
         </div>
       </div>
 
-      {error && <p style={{ color: 'red' }}>{error}</p>}
-      {sourceInfo && !error && <p style={{ color: 'green' }}>{sourceInfo}</p>}
+      {error && (
+        <p style={{ color: 'red', textAlign: 'center', marginTop: '0.75em' }}>
+          {error}
+        </p>
+      )}
+      {sourceInfo && !error && (
+        <p
+          style={{
+            color: 'green',
+            textAlign: 'center',
+            marginTop: '0.75em',
+            fontSize: '0.9em',
+          }}
+        >
+          {sourceInfo}
+        </p>
+      )}
 
       {loading ? (
         <p style={{ textAlign: 'center' }}>Ładowanie treningów...</p>
@@ -256,6 +307,7 @@ function Workouts() {
             maxWidth: '1300px',
           }}
         >
+          {/* LISTA ADIDAS */}
           <div>
             <h3>Lista treningów Adidas</h3>
             {adidasWorkouts.length === 0 ? (
@@ -289,19 +341,40 @@ function Workouts() {
                           {(w.distance_m / 1000).toFixed(1)} km
                         </div>
                       )}
-                      {w.gpx_file && (
-                        <div style={{ fontSize: '0.8em', color: '#16a34a', marginTop: '0.1em' }}>
-                          GPX dołączony – można wygenerować widok trasy
-                        </div>
-                      )}
-                      {w.manual && (
-                        <div style={{ fontSize: '0.8em', color: '#6b7280', marginTop: '0.1em' }}>
-                          (ręcznie dodany)
+                      {(w.gpx_file || w.manual) && (
+                        <div
+                          style={{
+                            fontSize: '0.8em',
+                            marginTop: '0.1em',
+                            maxWidth: '180px',   // <–– kluczowe: węższy blok, ładniejsze łamanie
+                            lineHeight: 1.25,
+                          }}
+                        >
+                          {w.gpx_file && (
+                            <div style={{ color: '#16a34a' }}>
+                              GPX dołączony – można wygenerować widok trasy
+                            </div>
+                          )}
+                          {w.manual && (
+                            <div style={{ color: '#6b7280' }}>
+                              (ręcznie dodany)
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
-                    <div style={{ flex: '0 0 auto', minWidth: 220 }}>
-                      <div style={{ display: 'flex', gap: '0.5em' }}>
+
+                    <div
+                      style={{
+                        flex: '0 0 auto',
+                        minWidth: 240,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                      }}
+                    >
+                      {/* 1. GPX + Usuń */}
+                      <div style={{ display: 'flex', gap: '0.5em', marginBottom: '0.5em' }}>
                         <label
                           style={{
                             padding: '0.4em 0.8em',
@@ -313,7 +386,11 @@ function Workouts() {
                             cursor: 'pointer',
                           }}
                         >
-                          {uploadingGpxId === w.id ? 'Wgrywanie...' : (w.gpx_file ? 'Zmień plik GPX' : 'Dołącz plik GPX')}
+                          {uploadingGpxId === w.id
+                            ? 'Wgrywanie...'
+                            : w.gpx_file
+                            ? 'Zmień plik GPX'
+                            : 'Dołącz plik GPX'}
                           <input
                             type="file"
                             accept=".gpx,application/gpx+xml,application/xml,text/xml"
@@ -323,25 +400,82 @@ function Workouts() {
                         </label>
                         <button onClick={() => handleDelete(w.id)}>Usuń</button>
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'center', marginTop: '0.5em' }}>
-                        <button
-                          style={{
-                            width: '70%',
-                            marginTop: '0.6em',
-                            background: '#0f172a',
-                            color: '#38bdf8',
-                            padding: '0.45em 0.9em',
-                            borderRadius: 6,
-                            fontSize: '0.9em',
-                            border: '1px solid #334155',
-                            cursor: 'pointer',
-                            textAlign: 'center',
-                          }}
-                          type="button"
-                          onClick={() => { window.location.hash = `#analysis?id=${w.id}`; }}
-                        >
-                          Szczegóły biegu
-                        </button>
+
+                      {/* 2. Szczegóły biegu */}
+                      <button
+                        style={{
+                          width: '70%',
+                          background: '#0f172a',
+                          color: '#38bdf8',
+                          padding: '0.45em 0.9em',
+                          borderRadius: 6,
+                          fontSize: '0.9em',
+                          border: '1px solid #334155',
+                          cursor: 'pointer',
+                          textAlign: 'center',
+                          marginBottom: '0.5em',
+                        }}
+                        type="button"
+                        onClick={() => {
+                          window.location.hash = `#analysis?id=${w.id}`;
+                        }}
+                      >
+                        Szczegóły biegu
+                      </button>
+
+                      {/* 3. HR button */}
+                      <label
+                        style={{
+                          padding: '0.35em 0.9em',
+                          fontSize: '0.85em',
+                          background: '#dc2626',
+                          color: '#fff',
+                          borderRadius: 4,
+                          cursor: 'pointer',
+                          textAlign: 'center',
+                          whiteSpace: 'nowrap',
+                          width: '70%',
+                          marginBottom: '0.35em',
+                        }}
+                      >
+                        {uploadingHrId === w.id ? 'HR...' : w.hr_stats ? 'Zmień HR' : 'Dołącz HR'}
+                        <input
+                          type="file"
+                          accept=".json,application/json"
+                          style={{ display: 'none' }}
+                          onChange={(e) => handleHrUpload(e, w.id)}
+                        />
+                      </label>
+
+                      {/* 4. HR INFO – krótszy tekst, stała szerokość */}
+                      <div
+                        style={{
+                          fontSize: '0.8em',
+                          maxWidth: '230px',
+                          textAlign: 'center',
+                          lineHeight: 1.3,
+                        }}
+                      >
+                        {w.hr_stats ? (
+                          <>
+                            <div style={{ color: '#16a34a' }}>
+                              Plik HR dołączony – {w.hr_stats.count} próbek
+                            </div>
+                            <div
+                              style={{
+                                fontSize: '0.75em',
+                                color: '#374151',
+                                marginTop: '0.1em',
+                              }}
+                            >
+                              Śr {w.hr_stats.avg} / min {w.hr_stats.min} / max {w.hr_stats.max}
+                            </div>
+                          </>
+                        ) : (
+                          <div style={{ color: '#6b7280' }}>
+                            Brak pliku HR – dołącz plik .json z tętnem.
+                          </div>
+                        )}
                       </div>
                     </div>
                   </li>
@@ -350,6 +484,7 @@ function Workouts() {
             )}
           </div>
 
+          {/* LISTA STRAVA */}
           <div>
             <h3>Lista treningów Strava</h3>
             {stravaWorkouts.length === 0 ? (
@@ -383,19 +518,40 @@ function Workouts() {
                           {(w.distance_m / 1000).toFixed(1)} km
                         </div>
                       )}
-                      {w.gpx_file && (
-                        <div style={{ fontSize: '0.8em', color: '#16a34a', marginTop: '0.1em' }}>
-                          GPX dołączony – można wygenerować widok trasy
-                        </div>
-                      )}
-                      {w.manual && (
-                        <div style={{ fontSize: '0.8em', color: '#6b7280', marginTop: '0.1em' }}>
-                          (ręcznie dodany)
+                      {(w.gpx_file || w.manual) && (
+                        <div
+                          style={{
+                            fontSize: '0.8em',
+                            marginTop: '0.1em',
+                            maxWidth: '180px',   // <–– kluczowe: węższy blok, ładniejsze łamanie
+                            lineHeight: 1.25,
+                          }}
+                        >
+                          {w.gpx_file && (
+                            <div style={{ color: '#16a34a' }}>
+                              GPX dołączony – można wygenerować widok trasy
+                            </div>
+                          )}
+                          {w.manual && (
+                            <div style={{ color: '#6b7280' }}>
+                              (ręcznie dodany)
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
-                    <div style={{ flex: '0 0 auto', minWidth: 220 }}>
-                      <div style={{ display: 'flex', gap: '0.5em' }}>
+
+                    <div
+                      style={{
+                        flex: '0 0 auto',
+                        minWidth: 240,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                      }}
+                    >
+                      {/* 1. GPX + Usuń */}
+                      <div style={{ display: 'flex', gap: '0.5em', marginBottom: '0.5em' }}>
                         <label
                           style={{
                             padding: '0.4em 0.8em',
@@ -407,7 +563,11 @@ function Workouts() {
                             cursor: 'pointer',
                           }}
                         >
-                          {uploadingGpxId === w.id ? 'Wgrywanie...' : (w.gpx_file ? 'Zmień plik GPX' : 'Dołącz plik GPX')}
+                          {uploadingGpxId === w.id
+                            ? 'Wgrywanie...'
+                            : w.gpx_file
+                            ? 'Zmień plik GPX'
+                            : 'Dołącz plik GPX'}
                           <input
                             type="file"
                             accept=".gpx,application/gpx+xml,application/xml,text/xml"
@@ -415,27 +575,85 @@ function Workouts() {
                             onChange={(e) => handleGpxUpload(e, w.id)}
                           />
                         </label>
+
                         <button onClick={() => handleDelete(w.id)}>Usuń</button>
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'center', marginTop: '0.5em' }}>
-                        <button
-                          style={{
-                            width: '70%',
-                            marginTop: '0.6em',
-                            background: '#0f172a',
-                            color: '#38bdf8',
-                            padding: '0.45em 0.9em',
-                            borderRadius: 6,
-                            fontSize: '0.9em',
-                            border: '1px solid #334155',
-                            cursor: 'pointer',
-                            textAlign: 'center',
-                          }}
-                          type="button"
-                          onClick={() => { window.location.hash = `#analysis?id=${w.id}`; }}
-                        >
-                          Szczegóły biegu
-                        </button>
+
+                      {/* 2. Szczegóły biegu */}
+                      <button
+                        style={{
+                          width: '70%',
+                          background: '#0f172a',
+                          color: '#38bdf8',
+                          padding: '0.45em 0.9em',
+                          borderRadius: 6,
+                          fontSize: '0.9em',
+                          border: '1px solid #334155',
+                          cursor: 'pointer',
+                          textAlign: 'center',
+                          marginBottom: '0.5em',
+                        }}
+                        type="button"
+                        onClick={() => {
+                          window.location.hash = `#analysis?id=${w.id}`;
+                        }}
+                      >
+                        Szczegóły biegu
+                      </button>
+
+                      {/* 3. HR button */}
+                      <label
+                        style={{
+                          padding: '0.35em 0.9em',
+                          fontSize: '0.85em',
+                          background: '#dc2626',
+                          color: '#fff',
+                          borderRadius: 4,
+                          cursor: 'pointer',
+                          textAlign: 'center',
+                          whiteSpace: 'nowrap',
+                          width: '70%',
+                          marginBottom: '0.35em',
+                        }}
+                      >
+                        {uploadingHrId === w.id ? 'HR...' : w.hr_stats ? 'Zmień HR' : 'Dołącz HR'}
+                        <input
+                          type="file"
+                          accept=".json,application/json"
+                          style={{ display: 'none' }}
+                          onChange={(e) => handleHrUpload(e, w.id)}
+                        />
+                      </label>
+
+                      {/* 4. HR INFO – stała szerokość, jak w Adidas */}
+                      <div
+                        style={{
+                          fontSize: '0.8em',
+                          maxWidth: '230px',
+                          textAlign: 'center',
+                          lineHeight: 1.3,
+                        }}
+                      >
+                        {w.hr_stats ? (
+                          <>
+                            <div style={{ color: '#16a34a' }}>
+                              Plik HR dołączony – {w.hr_stats.count} próbek
+                            </div>
+                            <div
+                              style={{
+                                fontSize: '0.75em',
+                                color: '#374151',
+                                marginTop: '0.1em',
+                              }}
+                            >
+                              Śr {w.hr_stats.avg} / min {w.hr_stats.min} / max {w.hr_stats.max}
+                            </div>
+                          </>
+                        ) : (
+                          <div style={{ color: '#6b7280' }}>
+                            Brak pliku HR – dołącz plik .json z tętnem.
+                          </div>
+                        )}
                       </div>
                     </div>
                   </li>

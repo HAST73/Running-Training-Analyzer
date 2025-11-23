@@ -1,5 +1,6 @@
 import json
 import math
+import bisect
 from io import BytesIO
 
 from django.contrib.auth.decorators import login_required
@@ -7,6 +8,7 @@ from django.db.models import Q
 from django.http import JsonResponse, HttpRequest, HttpResponse
 from django.core.files.storage import default_storage
 from django.views.decorators.csrf import csrf_exempt
+from django.utils import timezone
 
 from fitparse import FitFile
 from users.models import UserProfile, ActivityLog
@@ -21,6 +23,10 @@ def list_workouts(request: HttpRequest) -> JsonResponse:
     for w in qs:
         # Keep "gpx_file" in payload for frontend truthiness checks
         has_gpx = bool(w.gpx_data) or bool(w.gpx_file)
+        raw = w.raw_data or {}
+        hr_stats = None
+        if isinstance(raw, dict):
+            hr_stats = raw.get("hr_stats")
         items.append(
             {
                 "id": w.id,
@@ -33,6 +39,7 @@ def list_workouts(request: HttpRequest) -> JsonResponse:
                 "manual": w.manual,
                 # expose boolean for compatibility
                 "gpx_file": has_gpx,
+                "hr_stats": hr_stats,
             }
         )
     return JsonResponse({"workouts": items})
@@ -938,3 +945,242 @@ def delete_workout(request: HttpRequest, workout_id: int) -> JsonResponse:
     except Exception:
         pass
     return JsonResponse({"ok": True})
+
+
+@login_required
+def attach_hr(request: HttpRequest, workout_id: int) -> JsonResponse:
+    """Attach heart-rate JSON samples to an existing workout.
+
+    Accepts:
+      - POST multipart/form-data with file field "file" containing JSON
+      - POST application/json body with array/object
+
+    Expected structure variants (samples list discovered recursively):
+      [ {"start_time": <ms|iso>, "heart_rate": <int> , ...}, ...]
+      { "samples": [ {...}, ... ] }
+      Samsung Health export with mixed event objects; we pick those having heart_rate.
+
+    For each sample we normalize timestamp to ms since epoch (UTC) if possible.
+    Stores under raw_data['hr_samples'] list of {t: <ms>, hr: <int>} and
+    raw_data['hr_stats'] = {min,max,avg,count}.
+    """
+    if request.method != "POST":
+        return JsonResponse({"error": "Only POST allowed"}, status=405)
+
+    try:
+        workout = Workout.objects.get(id=workout_id, user=request.user)
+    except Workout.DoesNotExist:
+        return JsonResponse({"error": "Workout not found"}, status=404)
+
+    # Obtain JSON payload from body or uploaded file
+    payload = None
+    ct = request.content_type or ""
+    if ct.startswith("application/json"):
+        try:
+            payload = json.loads(request.body.decode("utf-8"))
+        except Exception:
+            return JsonResponse({"error": "Invalid JSON body"}, status=400)
+    elif ct.startswith("multipart/form-data"):
+        file = request.FILES.get("file")
+        if not file:
+            return JsonResponse({"error": "No file provided"}, status=400)
+        try:
+            raw = file.read().decode("utf-8", errors="ignore")
+            payload = json.loads(raw)
+        except Exception:
+            return JsonResponse({"error": "Invalid JSON file"}, status=400)
+    else:
+        # Fallback attempt parse body as JSON
+        try:
+            payload = json.loads(request.body.decode("utf-8"))
+        except Exception:
+            return JsonResponse({"error": "Unsupported content type"}, status=400)
+
+    # Extract samples list heuristically
+    def _find_samples(obj):
+        if isinstance(obj, list):
+            # Consider list valid if elements are dicts containing heart_rate or hr
+            if obj and all(isinstance(x, dict) for x in obj):
+                has_hr = any("heart_rate" in x or "hr" in x for x in obj)
+                if has_hr:
+                    return obj
+            # Recurse lists
+            for x in obj:
+                found = _find_samples(x)
+                if found is not None:
+                    return found
+        elif isinstance(obj, dict):
+            # Common key wrappers
+            for k in ["samples", "data", "heart_rate", "hr"]:
+                v = obj.get(k)
+                if isinstance(v, list):
+                    found = _find_samples(v)
+                    if found is not None:
+                        return found
+            # Samsung Health style: array under records/live_data etc.
+            for v in obj.values():
+                found = _find_samples(v)
+                if found is not None:
+                    return found
+        return None
+
+    samples_raw = _find_samples(payload) or []
+    normalized = []
+
+    def _to_ms(ts):
+        # Accept ms epoch, seconds epoch, or ISO string
+        if ts is None:
+            return None
+        if isinstance(ts, (int, float)):
+            # Heuristic: if ts is far in future assume already ms
+            if ts > 10**12:  # already ms
+                return int(ts)
+            # If looks like seconds (e.g., 1732200000) convert to ms
+            if ts < 10**11:  # seconds epoch threshold (~ year 5138 )
+                return int(ts * 1000)
+            return int(ts)
+        if isinstance(ts, str):
+            # Try ISO parse
+            from datetime import datetime
+            try:
+                dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                return int(dt.timestamp() * 1000)
+            except Exception:
+                return None
+        return None
+
+    for item in samples_raw:
+        if not isinstance(item, dict):
+            continue
+        hr = item.get("heart_rate") or item.get("hr")
+        if hr is None:
+            continue
+        try:
+            hr_val = int(hr)
+        except Exception:
+            continue
+        ts = item.get("start_time") or item.get("timestamp") or item.get("time")
+        ms = _to_ms(ts)
+        normalized.append({"t": ms, "hr": hr_val})
+
+    # Deduplicate samples (same t & hr)
+    seen = set()
+    deduped = []
+    for s in normalized:
+        key = (s.get("t"), s.get("hr"))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(s)
+    normalized = deduped
+
+    if not normalized:
+        return JsonResponse({"error": "Brak próbek tętna w pliku"}, status=400)
+
+    # Stats
+    hr_values = [x["hr"] for x in normalized if isinstance(x.get("hr"), int)]
+    if not hr_values:
+        return JsonResponse({"error": "Nie znaleziono poprawnych wartości tętna"}, status=400)
+
+    hr_min = min(hr_values)
+    hr_max = max(hr_values)
+    hr_avg = sum(hr_values) / len(hr_values)
+    stats = {
+        "min": hr_min,
+        "max": hr_max,
+        "avg": round(hr_avg, 1),
+        "count": len(hr_values),
+    }
+
+    raw = workout.raw_data or {}
+    # Preserve original HR payload separately if it contains more than pure samples
+    if isinstance(payload, dict) and payload.get("features"):
+        raw.setdefault("hr_payload" , payload)
+    elif isinstance(payload, list) and len(payload) and isinstance(payload[0], dict) and any(k in payload[0] for k in ("heart_rate","hr")):
+        raw.setdefault("hr_payload", {"sample_count": len(payload)})
+
+    raw["hr_samples"] = normalized
+    raw["hr_stats"] = stats
+
+    # Optional alignment with GPX trackpoints if GPX present
+    def _parse_gpx_trackpoints(gpx_bytes: bytes):
+        pts = []
+        if not gpx_bytes:
+            return pts
+        try:
+            import xml.etree.ElementTree as ET
+            ns = {"g": "http://www.topografix.com/GPX/1/1"}
+            root = ET.fromstring(gpx_bytes)
+            # Try both namespaced and non-namespaced trkpt
+            for tp in root.findall('.//g:trkpt', ns) + root.findall('.//trkpt'):
+                lat = tp.get('lat')
+                lon = tp.get('lon')
+                if lat is None or lon is None:
+                    continue
+                time_el = tp.find('g:time', ns) or tp.find('time')
+                ms = None
+                if time_el is not None and time_el.text:
+                    from datetime import datetime
+                    txt = time_el.text.strip()
+                    try:
+                        dt = datetime.fromisoformat(txt.replace('Z', '+00:00'))
+                        ms = int(dt.timestamp() * 1000)
+                    except Exception:
+                        ms = None
+                pts.append({"lat": float(lat), "lon": float(lon), "t": ms})
+        except Exception:
+            return []
+        return pts
+
+    hr_alignment = None
+    if workout.gpx_data:
+        gpx_pts = _parse_gpx_trackpoints(bytes(workout.gpx_data))
+        if gpx_pts:
+            # Build sorted list of times for binary search
+            time_index = [(p["t"], idx) for idx, p in enumerate(gpx_pts) if p.get("t") is not None]
+            time_index.sort(key=lambda x: x[0])
+            times = [t for t, _ in time_index]
+            aligned = []
+            tolerance_ms = 1500  # 1.5s tolerance for nearest match
+            for sample in normalized:
+                ts = sample.get("t")
+                if ts is None or not times:
+                    continue
+                pos = bisect.bisect_left(times, ts)
+                candidates = []
+                if pos < len(times):
+                    candidates.append(pos)
+                if pos - 1 >= 0:
+                    candidates.append(pos - 1)
+                best = None
+                best_diff = None
+                for ci in candidates:
+                    t_candidate = times[ci]
+                    diff = abs(t_candidate - ts)
+                    if best_diff is None or diff < best_diff:
+                        best_diff = diff
+                        best = ci
+                if best is not None and best_diff is not None and best_diff <= tolerance_ms:
+                    _, gpx_idx = time_index[best]
+                    gpx_point = gpx_pts[gpx_idx]
+                    aligned.append({
+                        "t": ts,
+                        "hr": sample["hr"],
+                        "lat": gpx_point.get("lat"),
+                        "lon": gpx_point.get("lon"),
+                        "gpx_idx": gpx_idx,
+                        "dt_ms": best_diff,
+                    })
+            hr_alignment = {
+                "aligned_count": len(aligned),
+                "total_hr_samples": len(normalized),
+                "total_gpx_points": len(gpx_pts),
+                "tolerance_ms": tolerance_ms,
+            }
+            raw["hr_aligned"] = aligned
+            raw["hr_alignment"] = hr_alignment
+
+    workout.raw_data = raw
+    workout.save(update_fields=["raw_data"])
+
+    return JsonResponse({"ok": True, "hr_stats": stats, "hr_alignment": hr_alignment})

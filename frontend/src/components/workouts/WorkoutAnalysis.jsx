@@ -27,27 +27,91 @@ function fmtTime(totalSec) {
   return [h, m, s].map((v, i) => (i === 0 ? v : String(v).padStart(2, '0'))).join(':');
 }
 
-function PaceElevationChart({ km, pace, elev }) {
-  const w = 820; const h = 180; const pad = 30;
-  if (!km || km.length === 0) return <div style={{ height: h }}>Brak danych do wykresu</div>;
+/**
+ * Wykres obsługujący teraz trzy serie danych:
+ * - pace (tempo) - niebieska linia
+ * - elev (wysokość) - szara przerywana
+ * - hr (tętno) - czerwona linia (NOWOŚĆ)
+ */
+function PaceElevationChart({ km, pace, elev, hr }) {
+  const w = 820; const h = 220; const pad = 30; // Zwiększyłem nieco wysokość dla czytelności
+  if (!km || km.length === 0) return <div style={{ height: h, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Brak danych do wykresu</div>;
+
   const xMin = 0, xMax = km[km.length - 1];
+  
+  // Dane Tempa
   const pVals = pace.filter(v => v && isFinite(v));
+  const pMin = pVals.length ? Math.min(...pVals) : 0;
+  const pMax = pVals.length ? Math.max(...pVals) : 1000;
+
+  // Dane Wysokości
   const eVals = elev.filter(v => v != null && isFinite(v));
-  const pMin = Math.min(...pVals), pMax = Math.max(...pVals);
   const eMin = eVals.length ? Math.min(...eVals) : 0;
-  const eMax = eVals.length ? Math.max(...eVals) : 1;
+  const eMax = eVals.length ? Math.max(...eVals) : 100;
+
+  // Dane Tętna (NOWOŚĆ)
+  const hVals = hr ? hr.filter(v => v != null && isFinite(v)) : [];
+  const hMin = hVals.length ? Math.min(...hVals) : 0;
+  const hMax = hVals.length ? Math.max(...hVals) : 200;
+
+  // Skalowanie X
   const x = v => pad + (v - xMin) / (xMax - xMin || 1) * (w - 2 * pad);
+
+  // Skalowanie Y (każda seria ma swoją skalę, żeby zmieścić się na wykresie)
+  // Tempo: odwrócone (szybciej = niżej na wykresie, lub wyżej - zależy od konwencji. Tutaj: mniej sec/km = wyżej)
+  // W poprzednim kodzie: mniej s/km (szybciej) = wyżej na wykresie (mniejsze Y SVG)
   const yP = v => h - pad - (v - pMin) / ((pMax - pMin) || 1) * (h - 2 * pad);
+  
+  // Wysokość
   const yE = v => h - pad - (v - eMin) / ((eMax - eMin) || 1) * (h - 2 * pad);
-  const pPath = km.map((kx, i) => `${i === 0 ? 'M' : 'L'} ${x(kx).toFixed(1)} ${yP((pace[i] ?? pMin)).toFixed(1)}`).join(' ');
-  const ePath = km.map((kx, i) => `${i === 0 ? 'M' : 'L'} ${x(kx).toFixed(1)} ${yE((elev[i] ?? eMin)).toFixed(1)}`).join(' ');
+
+  // Tętno
+  const yH = v => h - pad - (v - hMin) / ((hMax - hMin) || 1) * (h - 2 * pad);
+
+  // Generowanie ścieżek SVG
+  const pPath = km.map((kx, i) => {
+    const val = pace[i];
+    if (val == null) return ''; 
+    const prefix = (i === 0 || pace[i-1] == null) ? 'M' : 'L';
+    return `${prefix} ${x(kx).toFixed(1)} ${yP(val).toFixed(1)}`;
+  }).join(' ');
+
+  const ePath = km.map((kx, i) => {
+    const val = elev[i];
+    if (val == null) return '';
+    const prefix = (i === 0 || elev[i-1] == null) ? 'M' : 'L';
+    return `${prefix} ${x(kx).toFixed(1)} ${yE(val).toFixed(1)}`;
+  }).join(' ');
+
+  let hPath = "";
+  if (hVals.length > 0) {
+    hPath = km.map((kx, i) => {
+        const val = hr[i];
+        if (val == null) return '';
+        const prefix = (i === 0 || hr[i-1] == null) ? 'M' : 'L';
+        return `${prefix} ${x(kx).toFixed(1)} ${yH(val).toFixed(1)}`;
+    }).join(' ');
+  }
+
   return (
-    <svg width={w} height={h} role="img">
-      <rect x={0} y={0} width={w} height={h} fill="#fff" stroke="#e5e7eb" />
-      <path d={ePath} stroke="#9ca3af" strokeDasharray="4 3" fill="none" />
-      <path d={pPath} stroke="#2563eb" fill="none" />
-      <text x={pad} y={16} fontSize={12} fill="#2563eb">tempo</text>
-      <text x={pad + 50} y={16} fontSize={12} fill="#6b7280">wysokość</text>
+    <svg width={w} height={h} role="img" style={{ display: 'block', margin: '0 auto' }}>
+      <rect x={0} y={0} width={w} height={h} fill="#fff" stroke="#e5e7eb" rx={8} />
+      
+      {/* Wysokość - szary przerywany */}
+      {eVals.length > 0 && <path d={ePath} stroke="#9ca3af" strokeDasharray="4 3" strokeWidth="1" fill="none" />}
+      
+      {/* Tempo - niebieski */}
+      {pVals.length > 0 && <path d={pPath} stroke="#2563eb" strokeWidth="2" fill="none" />}
+      
+      {/* Tętno - czerwony (jeśli jest) */}
+      {hVals.length > 0 && <path d={hPath} stroke="#dc2626" strokeWidth="1.5" fill="none" opacity="0.8" />}
+
+      {/* Legenda */}
+      <g transform={`translate(${pad}, 16)`}>
+        <text x={0} y={0} fontSize={12} fill="#2563eb" fontWeight="600">tempo</text>
+        {eVals.length > 0 && <text x={50} y={0} fontSize={12} fill="#6b7280">wysokość</text>}
+        {hVals.length > 0 && <text x={120} y={0} fontSize={12} fill="#dc2626" fontWeight="600">tętno</text>}
+      </g>
     </svg>
   );
 }
@@ -60,6 +124,7 @@ function parseAiNote(raw) {
     good: [],
     improve: [],
     anthropo: [],
+    bmi: [],
   };
 
   const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
@@ -88,7 +153,17 @@ function parseAiNote(raw) {
       if (current && text) {
         sections[current].push(text);
       }
+      // also capture BMI bullet-like lines if no current section
+      else if (/^(Wynik BMI:|Prawidłowa waga|Brakuje|Masz około|Jesteś w normie|Rekomendacja:)/.test(text)) {
+        sections.bmi.push(text);
+      }
     }
+  }
+
+  // Additionally capture standalone BMI lines (not prefixed with '-')
+  const bmiLines = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean).filter(l => /^(Wynik BMI:|Prawidłowa waga|Brakuje|Masz około|Jesteś w normie|Rekomendacja:)/.test(l));
+  for (const bl of bmiLines) {
+    if (!sections.bmi.includes(bl)) sections.bmi.push(bl);
   }
 
   return sections;
@@ -164,19 +239,69 @@ export default function WorkoutAnalysis() {
   const polylines = (() => {
     const pts = trackPts;
     const lines = [];
+    if (!pts || pts.length < 2) return lines;
+
+    // Collect per-segment pace values (skip nulls)
+    const pvals = [];
+    for (let i = 1; i < pts.length; i++) {
+      const b = pts[i];
+      const pace = b.pace_s;
+      if (pace != null && isFinite(pace) && pace > 0) pvals.push(pace);
+    }
+
+    // Determine min/max for normalization using robust percentiles (5%..95%) to
+    // avoid a few outliers collapsing the whole gradient to one color.
+    let minP = null;
+    let maxP = null;
+    if (pvals.length) {
+      const sorted = [...pvals].sort((a,b) => a - b);
+      const n = sorted.length;
+      const loIdx = Math.floor(n * 0.05);
+      const hiIdx = Math.max(0, Math.ceil(n * 0.95) - 1);
+      minP = sorted[loIdx];
+      maxP = sorted[hiIdx];
+      // if percentiles are equal (very little spread), fall back to full min/max
+      if (minP === maxP) {
+        minP = sorted[0];
+        maxP = sorted[n-1];
+      }
+      // add small padding to expand visible range
+      const range = maxP - minP || Math.max(1, Math.abs(minP) * 0.1);
+      minP = minP - 0.12 * range;
+      maxP = maxP + 0.12 * range;
+    }
+
+    // Map pace (s/km) to color: slower -> green (hue ~120), faster -> red (hue ~0)
+    function paceToColor(p) {
+      if (p == null || !isFinite(p)) return '#9ca3af';
+      if (minP == null || maxP == null || minP === maxP) {
+        // fallback buckets (older behavior)
+        if (p > 420) return '#ef4444';
+        if (p > 360) return '#f59e0b';
+        return '#16a34a';
+      }
+      // Normalize into 0..1 where 0 -> fastest, 1 -> slowest (so hue grows toward green)
+      let nrm = (p - minP) / (maxP - minP);
+      if (!isFinite(nrm)) nrm = 0.5;
+      if (nrm < 0) nrm = 0;
+      if (nrm > 1) nrm = 1;
+      // Use a slight easing so mid-range maps to yellow (more visible)
+      const eased = Math.pow(nrm, 0.9);
+      const hue = eased * 120; // 0 = red, 120 = green
+      return `hsl(${Math.round(hue)}, 78%, 45%)`;
+    }
+
     for (let i = 1; i < pts.length; i++) {
       const a = pts[i - 1], b = pts[i];
-      const pace = b.pace_s || 0;
-      let color = '#16a34a';
-      if (pace > 420) color = '#ef4444';
-      else if (pace > 360) color = '#f59e0b';
+      const pace = b.pace_s || null;
+      const color = paceToColor(pace);
       lines.push({ positions: [[a.lat, a.lon], [b.lat, b.lon]], color });
     }
     return lines;
   })();
 
   const splits = (data?.analysis?.splits) || [];
-  const chart = data?.analysis?.chart || { km: [], pace_s: [], elev: [] };
+  const chart = data?.analysis?.chart || { km: [], pace_s: [], elev: [], hr: [] };
 
   let phaseInfo = null;
   if (splits.length >= 3) {
@@ -223,12 +348,31 @@ export default function WorkoutAnalysis() {
       : (steps?.average_step_rate_spm != null
         ? steps.average_step_rate_spm
         : null));
+  
+  const avgHr = data?.analysis?.summary?.avg_hr_bpm;
 
   const aiSections = useMemo(
     () => (data?.ai_note ? parseAiNote(data.ai_note) : null),
     [data?.ai_note]
   );
-
+  
+  // Parse BMI number (if present) and derive status for UI colorization
+  const bmiInfo = useMemo(() => {
+    if (!aiSections || !aiSections.bmi || aiSections.bmi.length === 0) return { value: null, status: null };
+    let val = null;
+    for (const line of aiSections.bmi) {
+      const m = line.match(/(\d{1,2}(?:\.\d+)?)/);
+      if (m) { val = parseFloat(m[1]); break; }
+    }
+    const status = (v => {
+      if (v == null || !isFinite(v)) return null;
+      if (v < 18.5) return 'under';
+      if (v < 25.0) return 'normal';
+      if (v < 30.0) return 'over';
+      return 'obese';
+    })(val);
+    return { value: val, status };
+  }, [aiSections]);
   return (
     <section>
       <h2 style={{ textAlign: 'center', marginBottom: '1rem' }}>Szczegółowa analiza biegu</h2>
@@ -276,6 +420,9 @@ export default function WorkoutAnalysis() {
                 )}
                 <div><strong>Kalorie:</strong> {data.calories_kcal ? Math.round(data.calories_kcal) + ' kcal' : (data.analysis?.summary?.calories_kcal != null ? Math.round(data.analysis?.summary?.calories_kcal) + ' kcal' : '-')}</div>
                 <div><strong>Śr. kadencja:</strong> {avgCadence != null ? Math.round(avgCadence) + ' spm' : '-'}</div>
+                {avgHr != null && (
+                  <div style={{fontWeight: 600}}><strong>Śr. tętno:</strong> {Math.round(avgHr)} bpm</div>
+                )}
               </div>
             </div>
           </div>
@@ -333,9 +480,9 @@ export default function WorkoutAnalysis() {
           </div>
 
           <div style={{ marginBottom: '1rem' }}>
-            <h4 style={{ margin: '0 0 8px 0' }}>Wykres tempa i wysokości (km → tempo / wysokość)</h4>
-            <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
-              <PaceElevationChart km={chart.km} pace={chart.pace_s} elev={chart.elev} />
+            <h4 style={{ margin: '0 0 8px 0' }}>Wykres tempa, wysokości i tętna</h4>
+            <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', padding: '10px 0' }}>
+              <PaceElevationChart km={chart.km} pace={chart.pace_s} elev={chart.elev} hr={chart.hr} />
             </div>
           </div>
 
@@ -380,7 +527,7 @@ export default function WorkoutAnalysis() {
                     <th style={{ textAlign: 'left', borderBottom: '1px solid #e5e7eb', padding: 6 }}>km</th>
                     <th style={{ textAlign: 'left', borderBottom: '1px solid #e5e7eb', padding: 6 }}>tempo</th>
                     <th style={{ textAlign: 'left', borderBottom: '1px solid #e5e7eb', padding: 6 }}>przewyższenie</th>
-                    <th style={{ textAlign: 'left', borderBottom: '1px solid #e5e7eb', padding: 6 }}>tętno</th>
+                    <th style={{ textAlign: 'left', borderBottom: '1px solid #e5e7eb', padding: 6 }}>tętno (śr.)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -389,7 +536,9 @@ export default function WorkoutAnalysis() {
                       <td style={{ padding: 6 }}>{s.km}</td>
                       <td style={{ padding: 6 }}>{fmtPace(s.pace_s)}</td>
                       <td style={{ padding: 6 }}>{s.elev_gain_m != null ? `${Math.round(s.elev_gain_m)} m` : '-'}</td>
-                      <td style={{ padding: 6 }}>-</td>
+                      <td style={{ padding: 6, color: s.hr_bpm ? '#dc2626' : 'inherit' }}>
+                        {s.hr_bpm ? Math.round(s.hr_bpm) : '-'}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -407,6 +556,47 @@ export default function WorkoutAnalysis() {
                 </p>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {/* BMI card (parsed from AI note) */}
+                        {aiSections.bmi && aiSections.bmi.length > 0 && (
+                          (() => {
+                            const status = bmiInfo.status;
+                            let styleOuter = { borderRadius: 6, padding: '0.5rem 0.75rem' };
+                            let titleStyle = { fontSize: '0.9em', fontWeight: 700, marginBottom: 6 };
+                            let listStyle = { paddingLeft: '1.1rem', margin: 0, fontSize: '0.9em' };
+                            if (status === 'normal') {
+                              styleOuter = { ...styleOuter, background: '#ecfdf5', border: '1px solid #bbf7d0' };
+                              titleStyle = { ...titleStyle, color: '#166534' };
+                              listStyle = { ...listStyle, color: '#166534' };
+                            } else if (status === 'under') {
+                              styleOuter = { ...styleOuter, background: '#eff6ff', border: '1px solid #bfdbfe' };
+                              titleStyle = { ...titleStyle, color: '#1d4ed8' };
+                              listStyle = { ...listStyle, color: '#1d4ed8' };
+                            } else if (status === 'over') {
+                              styleOuter = { ...styleOuter, background: '#fff7ed', border: '1px solid #facc15' };
+                              titleStyle = { ...titleStyle, color: '#92400e' };
+                              listStyle = { ...listStyle, color: '#92400e' };
+                            } else if (status === 'obese') {
+                              styleOuter = { ...styleOuter, background: '#fee2e2', border: '1px solid #fecaca' };
+                              titleStyle = { ...titleStyle, color: '#7f1d1d' };
+                              listStyle = { ...listStyle, color: '#7f1d1d' };
+                            } else {
+                              styleOuter = { ...styleOuter, background: '#fff7ed', border: '1px solid #facc15' };
+                              titleStyle = { ...titleStyle, color: '#92400e' };
+                              listStyle = { ...listStyle, color: '#92400e' };
+                            }
+
+                            return (
+                              <div style={styleOuter}>
+                                <div style={titleStyle}>BMI</div>
+                                <ul style={listStyle}>
+                                  {aiSections.bmi.map((t, i) => (
+                                    <li key={i}>{t}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            );
+                          })()
+                        )}
                   {aiSections.summary.length > 0 && (
                     <div
                       style={{

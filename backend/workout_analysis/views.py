@@ -1,12 +1,11 @@
-from __future__ import annotations
-
-from django.contrib.auth.decorators import login_required
-from django.http import HttpRequest, JsonResponse
-
-from workouts.models import Workout
-from .utils import analyze_track, parse_gpx
 import statistics
 import json
+import math
+from bisect import bisect_left
+from django.contrib.auth.decorators import login_required
+from django.http import HttpRequest, JsonResponse
+from workouts.models import Workout
+from .utils import analyze_track, parse_gpx
 
 def _safe_float(value):
     """Zwraca float albo None, jeżeli nie da się przekonwertować."""
@@ -17,145 +16,333 @@ def _safe_float(value):
     except (TypeError, ValueError):
         return None
 
+def _extract_time_series_from_json(raw_data):
+    """
+    Parsuje płaską listę zdarzeń (jak w Twoim pliku .json) do posortowanej listy krotek.
+    Zwraca: [(time_seconds, heart_rate), ...]
+    """
+    data_list = []
+    
+    # 1. Jeśli raw_data to bezpośrednio lista (Twój przypadek)
+    if isinstance(raw_data, list):
+        data_list = raw_data
+    # 2. Jeśli to słownik z kluczem 'hr_samples' (przypadek attach_hr)
+    elif isinstance(raw_data, dict):
+        if "hr_samples" in raw_data:
+            # hr_samples ma zazwyczaj format {t: ms, hr: val}
+            return sorted(
+                [(x["t"] / 1000.0, float(x["hr"])) for x in raw_data["hr_samples"] if x.get("hr")],
+                key=lambda x: x[0]
+            )
+        # Fallback: szukanie features (Adidas standard) - pomijamy dla uproszczenia, bo Twój plik to lista
+        
+    hr_points = []
+    for item in data_list:
+        if not isinstance(item, dict):
+            continue
+        
+        # Pobierz czas (w ms)
+        ts_ms = item.get("start_time") or item.get("timestamp")
+        hr = item.get("heart_rate") or item.get("hr")
+        
+        if ts_ms is not None and hr is not None:
+            try:
+                # Konwersja ms -> sekundy
+                t_sec = float(ts_ms) / 1000.0
+                hr_val = float(hr)
+                if hr_val > 0:
+                    hr_points.append((t_sec, hr_val))
+            except (ValueError, TypeError):
+                continue
+
+    # Sortowanie po czasie jest kluczowe dla interpolacji
+    hr_points.sort(key=lambda x: x[0])
+    return hr_points
+
+def _interpolate_hr(target_ts, hr_series):
+    """Znajduje tętno dla danego znacznika czasu (najbliższy sąsiad)."""
+    if not hr_series:
+        return None
+    
+    # hr_series to lista [(ts, hr), ...]
+    keys = [x[0] for x in hr_series]
+    idx = bisect_left(keys, target_ts)
+    
+    # Sprawdź granice
+    if idx == 0:
+        return hr_series[0][1]
+    if idx >= len(hr_series):
+        return hr_series[-1][1]
+    
+    # Wybierz bliższy punkt (interpolacja nearest-neighbor)
+    before = hr_series[idx - 1]
+    after = hr_series[idx]
+    
+    if abs(target_ts - before[0]) < abs(target_ts - after[0]):
+        return before[1]
+    else:
+        return after[1]
+
 @login_required
 def workout_analysis(request: HttpRequest, workout_id: int) -> JsonResponse:
-    """Return detailed analysis for a workout.
-
-    WAŻNE: analiza (dystans, tempo, przewyższenie, kadencja, wykres)
-    jest liczona TYLKO z GPX, jeżeli GPX został dołączony.
-    JSON z Adidasa / FIT ze Stravy służy tylko jako surowe raw_data.
-    """
     try:
         w = Workout.objects.get(id=workout_id, user=request.user)
     except Workout.DoesNotExist:
         return JsonResponse({"error": "Workout not found"}, status=404)
 
-    # 1) ZBIERAMY PUNKTY WYŁĄCZNIE Z GPX
+    # 1) ZBIERAMY PUNKTY Z GPX (Geometria trasy)
     points = []
-    # najpierw inline gpx_data (nowy sposób przechowywania)
     if w.gpx_data:
         points = parse_gpx(bytes(w.gpx_data))
-    # fallback na stare FileField, jeśli jeszcze gdzieś jest używane
     elif w.gpx_file and getattr(w.gpx_file, "file", None):
         try:
             points = parse_gpx(w.gpx_file.read())
         except Exception:
             points = []
 
-    # 2) ANALIZA – bazuje TYLKO na punktach z GPX
+    # 2) ANALIZA PODSTAWOWA (z GPX)
     analysis = analyze_track(points)
 
-    # Uzupełnienie kalorii wagą użytkownika (jeśli dostępna) – prosta modyfikacja
-    user_profile = getattr(request.user, "profile", None)
-    user_weight = None
-    user_height_cm = None
-    if user_profile:
-        user_weight = user_profile.weight_kg if user_profile.weight_kg else None
-        user_height_cm = user_profile.height_cm if user_profile.height_cm else None
-    if user_weight and isinstance(analysis.get("summary"), dict):
-        dist_m = analysis["summary"].get("distance_m") or 0.0
-        try:
-            analysis["summary"]["calories_kcal"] = 1.036 * float(user_weight) * (float(dist_m) / 1000.0)
-        except Exception:
-            pass
-
-    # 3) Dodatki z raw_data (Adidas / Strava) – wersja BEZPIECZNA
-    def _safe_float(v):
-        try:
-            if v is None:
-                return None
-            return float(v)
-        except (TypeError, ValueError):
-            return None
-
-    calories = None
-    dehydration_volume = None
-    base_duration_ms = None
-    adidas_weather = None
-    adidas_steps = None
-    adidas_device = None
-
+    # 3) WZBOGACENIE O DANE Z JSON (TĘTNO)
+    # Jeśli raw_data jest stringiem JSON, parsujemy go
     raw = w.raw_data
-
-    # nowy kod – obsługa zarówno JSONField (dict), jak i TextField (string)
     if isinstance(raw, str):
         try:
             raw = json.loads(raw)
         except Exception:
-            raw = {}
-    elif not isinstance(raw, dict) or raw is None:
-        raw = {}
+            raw = []
+    
+    # Wyciągamy serię czasową tętna z pliku JSON
+    hr_series = _extract_time_series_from_json(raw)
 
+    summary = analysis.get("summary", {})
+    # Ensure these are always defined (used later even without HR data)
+    track = analysis.get("track", [])
+    chart = analysis.get("chart", {})
+    splits = analysis.get("splits", [])
+    
+    # JEŚLI MAMY DANE HR Z PLIKU JSON:
+    if hr_series:
+        # A. Statystyki ogólne (jeśli GPX ich nie dostarczył)
+        hrs = [x[1] for x in hr_series]
+        if not summary.get("avg_hr_bpm") and hrs:
+            summary["avg_hr_bpm"] = sum(hrs) / len(hrs)
+        if not summary.get("max_hr_bpm") and hrs:
+            summary["max_hr_bpm"] = max(hrs)
+        if "min_hr_bpm" not in summary and hrs: # Dodatkowe pole
+            summary["min_hr_bpm"] = min(hrs)
 
-    # proste pola
-    calories = raw.get("calories") or raw.get("total_calories")
-    dehydration_volume = raw.get("dehydration_volume")
-    base_duration_ms = raw.get("duration") or raw.get("duration_ms")
+        # B. Synchronizacja z wykresem i splitami (Data Fusion)
+        # Jeśli mamy trasę (GPX) z czasami, możemy "dokleić" tętno do punktów trasy
+        
+        # B.1 Uzupełnij 'track' o HR (jeśli brakuje)
+        # To pozwoli na poprawne mapowanie, jeśli frontend tego używa
+        has_track_timestamps = track and track[0].get("ts") is not None
+        
+        if has_track_timestamps:
+            # Uzupełnij tablicę wykresu (chart)
+            # chart['km'] to oś X (dystans). Musimy wiedzieć, jaki czas odpowiada danemu dystansowi.
+            # analyze_track nie zwraca czasu dla punktów wykresu wprost, ale możemy to przybliżyć
+            # iterując po 'track' i próbkując co ~100m.
+            
+            # Zróbmy regenerację tablicy 'hr' do wykresu
+            new_chart_hr = []
+            current_dist = 0.0
+            next_sample_dist = 0.0
+            
+            # Jeśli chart['km'] istnieje, spróbujmy dopasować HR
+            if chart.get("km"):
+                # Ponieważ analyze_track już zbudował chart['km'], musimy zrobić trudniejszą interpolację
+                # albo (prościej) nadpisać logikę zbierania danych do wykresu,
+                # iterując po 'track' jeszcze raz.
+                
+                chart_hr_values = []
+                sample_indices = [] # indeksy w 'track', które trafiły do wykresu
+                
+                accum_dist = 0.0
+                accum_since_last = 0.0
+                
+                # Symulacja logiki z analyze_track żeby zgrać się z chart['km']
+                # (zakładamy, że analyze_track próbkuje co ok 100m)
+                for pt in track:
+                    segment = pt.get("seg_m") or 0.0
+                    ts = pt.get("ts")
+                    
+                    accum_dist += segment
+                    accum_since_last += segment
+                    
+                    if accum_since_last >= 100.0:
+                        accum_since_last = 0.0
+                        # Mamy punkt wykresu. Znajdź tętno dla czasu 'ts'
+                        val = None
+                        if ts:
+                            val = _interpolate_hr(float(ts), hr_series)
+                        chart_hr_values.append(val)
+                
+                # Nadpisz/Dodaj do wykresu
+                # Uwaga: długość musi się zgadzać. Jeśli symulacja wyjdzie inna o 1 element,
+                # przytnij lub dopełnij.
+                target_len = len(chart["km"])
+                current_len = len(chart_hr_values)
+                
+                if current_len > target_len:
+                    chart_hr_values = chart_hr_values[:target_len]
+                elif current_len < target_len:
+                    chart_hr_values.extend([None] * (target_len - current_len))
+                
+                analysis["chart"]["hr"] = chart_hr_values
 
-    # BEZPIECZNE czytanie features
-    features = raw.get("features") or []
-    if not isinstance(features, list):
-        features = []
+            # B.2 Uzupełnij splity o średnie tętno
+            # Splity mają pole 'km' (1, 2, 3...).
+            # Musimy obliczyć średnie HR dla każdego kilometra.
+            # Użyjmy punktów 'track' jako odniesienia czasu i dystansu.
+            km_idx = 1
+            curr_km_hr_sum = 0.0
+            curr_km_hr_count = 0
+            curr_km_dist = 0.0
+            
+            # Mapa splitów do szybkiego dostępu
+            split_map = {s["km"]: s for s in splits}
+            
+            for pt in track:
+                dist = pt.get("seg_m") or 0.0
+                ts = pt.get("ts")
+                curr_km_dist += dist
+                
+                if ts:
+                    hr_val = _interpolate_hr(float(ts), hr_series)
+                    if hr_val:
+                        curr_km_hr_sum += hr_val
+                        curr_km_hr_count += 1
+                
+                if curr_km_dist >= 1000.0:
+                    if km_idx in split_map:
+                        avg = (curr_km_hr_sum / curr_km_hr_count) if curr_km_hr_count > 0 else None
+                        # Nadpisz tylko jeśli split nie ma HR z GPX
+                        if split_map[km_idx].get("hr_bpm") is None:
+                            split_map[km_idx]["hr_bpm"] = avg
+                    
+                    km_idx += 1
+                    curr_km_dist -= 1000.0
+                    curr_km_hr_sum = 0.0
+                    curr_km_hr_count = 0
 
-    for f in features:
-        if not isinstance(f, dict):
-            continue
+    # Reszta kodu (kalorie, antropometria, meta) bez zmian...
+    user_profile = getattr(request.user, "profile", None)
+    user_weight = user_profile.weight_kg if user_profile and user_profile.weight_kg else None
+    user_height_cm = user_profile.height_cm if user_profile and user_profile.height_cm else None
 
-        f_type = f.get("type")
-        attrs = f.get("attributes") or {}
-        if not isinstance(attrs, dict):
-            attrs = {}
+    if user_weight and summary.get("distance_m"):
+         dist_km = summary["distance_m"] / 1000.0
+         # Proste szacowanie jeśli nie ma kalorii
+         if not summary.get("calories_kcal"):
+             summary["calories_kcal"] = 1.036 * float(user_weight) * dist_km
 
-        # --- POGODA ---
-        if f_type == "weather":
-            conditions = attrs.get("conditions")
-            temp = _safe_float(attrs.get("temperature") or attrs.get("temperature_c"))
-            wind_speed = _safe_float(attrs.get("wind_speed") or attrs.get("wind_speed_ms"))
-            wind_dir = _safe_float(attrs.get("wind_direction") or attrs.get("wind_direction_deg"))
-            humidity = _safe_float(attrs.get("humidity") or attrs.get("humidity_percent"))
-
-            # ustaw tylko jeśli coś realnego jest
-            if any([conditions, temp, wind_speed, wind_dir, humidity]):
-                adidas_weather = {
-                    "conditions": conditions,
-                    "temperature_c": temp,
-                    "wind_speed_ms": wind_speed,
-                    "wind_direction_deg": wind_dir,
-                    "humidity_percent": humidity,
-                }
-
-        # --- KROKI ---
-        elif f_type == "steps":
-            total_steps = attrs.get("total_steps")
-            avg_step_rate = _safe_float(attrs.get("average_step_rate"))
-            max_step_rate = _safe_float(attrs.get("maximum_step_rate"))
-            avg_step_length = _safe_float(attrs.get("average_step_length"))
-
-            if any([total_steps, avg_step_rate, max_step_rate, avg_step_length]):
-                adidas_steps = {
-                    "total_steps": total_steps,
-                    "average_step_rate_spm": avg_step_rate,
-                    "max_step_rate_spm": max_step_rate,
-                    "average_step_length_cm": avg_step_length,
-                }
-
-        # --- URZĄDZENIE ---
-        elif f_type == "origin":
-            dev = attrs.get("device") or {}
-            if isinstance(dev, dict):
-                name = dev.get("name")
-                vendor = dev.get("vendor")
-                os_version = dev.get("os_version")
-                if any([name, vendor, os_version]):
-                    adidas_device = {
-                        "name": name,
-                        "vendor": vendor,
-                        "os_version": os_version,
+    # Ekstrakcja metadanych Adidas (pogoda, kroki, urządzenie, utrata płynów)
+    adidas_meta = {}
+    if isinstance(raw, dict):
+        features = raw.get("features")
+        if isinstance(features, list):
+            for f in features:
+                if not isinstance(f, dict):
+                    continue
+                ftype = f.get("type")
+                attrs = f.get("attributes") or {}
+                # Pogoda
+                if ftype == "weather":
+                    # Support multiple naming variants
+                    temp = attrs.get("temperature_c")
+                    if temp is None:
+                        temp = attrs.get("temperature")
+                    hum = attrs.get("humidity_percent")
+                    if hum is None:
+                        hum = attrs.get("humidity")
+                    wsp = attrs.get("wind_speed_ms")
+                    if wsp is None:
+                        wsp = attrs.get("wind_speed")
+                    weather = {
+                        "conditions": attrs.get("conditions"),
+                        "temperature_c": _safe_float(temp),
+                        "humidity_percent": _safe_float(hum),
+                        "wind_speed_ms": _safe_float(wsp),
+                        "wind_direction_deg": _safe_float(attrs.get("wind_direction")),
                     }
+                    adidas_meta["weather"] = weather
+                # Kroki / kadencja
+                elif ftype in ("steps", "step_metrics", "running_metrics"):
+                    # Fallback naming variants
+                    avg_rate = attrs.get("average_step_rate_spm")
+                    if avg_rate is None:
+                        avg_rate = attrs.get("average_step_rate")
+                    max_rate = attrs.get("max_step_rate_spm")
+                    if max_rate is None:
+                        max_rate = attrs.get("maximum_step_rate")
+                    avg_len = attrs.get("average_step_length_cm")
+                    if avg_len is None:
+                        avg_len = attrs.get("average_step_length")
+                    steps = {
+                        "total_steps": attrs.get("total_steps"),
+                        "average_step_rate_spm": _safe_float(avg_rate),
+                        "max_step_rate_spm": _safe_float(max_rate),
+                        "average_step_length_cm": _safe_float(avg_len),
+                    }
+                    adidas_meta["steps"] = steps
+                # Utrata płynów
+                elif ftype in ("hydration", "dehydration") or any(
+                    k for k in attrs.keys() if "dehydration" in k or "hydration" in k
+                ):
+                    vol = attrs.get("dehydration_volume_ml") or attrs.get("hydration_volume_ml") or attrs.get("dehydration_volume")
+                    if vol is not None:
+                        try:
+                            adidas_meta["dehydration_volume_ml"] = float(vol)
+                        except Exception:
+                            pass
+                # Origin feature holds device info
+                if ftype == "origin" and isinstance(attrs.get("device"), dict):
+                    dev_attrs = attrs.get("device") or {}
+                    dev = {
+                        "name": dev_attrs.get("name"),
+                        "vendor": dev_attrs.get("vendor"),
+                        "os_version": dev_attrs.get("os_version"),
+                    }
+                    adidas_meta["device"] = dev
+                # Informacje o urządzeniu
+                elif ftype in ("device", "device_info"):
+                    dev = {
+                        "name": attrs.get("name"),
+                        "vendor": attrs.get("vendor"),
+                        "os_version": attrs.get("os_version"),
+                    }
+                    adidas_meta["device"] = dev
+                # Czas trwania wg Adidas (czasami w initial_values, ale również tu)
+                if "duration_ms" in attrs and adidas_meta.get("duration_ms") is None:
+                    try:
+                        adidas_meta["duration_ms"] = int(attrs.get("duration_ms"))
+                    except Exception:
+                        pass
+        # Dodatkowo: initial_values może trzymać start_time/duration
+        if not adidas_meta.get("duration_ms"):
+            if isinstance(features, list):
+                for f in features:
+                    if isinstance(f, dict) and f.get("type") == "initial_values":
+                        attrs = f.get("attributes") or {}
+                        dur = attrs.get("duration") or attrs.get("duration_ms")
+                        if dur is not None:
+                            try:
+                                adidas_meta["duration_ms"] = int(dur)
+                            except Exception:
+                                pass
+                        break
 
-
-    # 4) Odpowiedź – dystans/czas bierzemy z Workout (tak jak masz),
-    #     ale przewyższenie WYŁĄCZNIE z analysis.summary.elev_gain_m
+    # Budowanie odpowiedzi JSON
+    # Add top-level dehydration if not captured
+    if isinstance(raw, dict) and adidas_meta.get("dehydration_volume_ml") is None:
+        top_dehydration = raw.get("dehydration_volume") or raw.get("dehydration_volume_ml")
+        if top_dehydration is not None:
+            try:
+                adidas_meta["dehydration_volume_ml"] = float(top_dehydration)
+            except Exception:
+                pass
     resp = {
         "id": w.id,
         "title": w.title,
@@ -164,176 +351,217 @@ def workout_analysis(request: HttpRequest, workout_id: int) -> JsonResponse:
         "duration_ms": w.duration_ms,
         "has_track": bool(points),
         "analysis": analysis,
-        "calories_kcal": calories or analysis.get("summary", {}).get("calories_kcal"),
+        "calories_kcal": summary.get("calories_kcal"),
         "user_anthropometrics": {
             "height_cm": user_height_cm,
-            "weight_kg": float(user_weight) if user_weight is not None else None,
+            "weight_kg": float(user_weight) if user_weight else None,
         },
-        # nowe pole z rzeczami z Adidas JSON (opcjonalne)
-        "adidas_meta": {
-            "duration_ms": base_duration_ms,
-            "dehydration_volume_ml": dehydration_volume,
-            "weather": adidas_weather,
-            "steps": adidas_steps,
-            "device": adidas_device,
-        },
+        "adidas_meta": adidas_meta,
+        "hr_stats": (raw.get("hr_stats") if isinstance(raw, dict) else None),
+        "hr_alignment": (raw.get("hr_alignment") if isinstance(raw, dict) else None),
     }
 
-    # Heurystyczna "Analiza AI" – oparta na analysis (czyli GPX)
-    summary = analysis.get("summary", {})
-    splits = analysis.get("splits", [])
-
+    # --- Generowanie notatki AI (uproszczone pod nową logikę) ---
     avg_pace = summary.get("avg_pace_s_per_km")
-    best_1k = analysis.get("best_segments", {}).get("best_1k_pace_s")
-    elev = summary.get("elev_gain_m")
-    cad = summary.get("avg_cadence_spm")
-
-    def _pace_str(v: float | None) -> str:
-        """Format seconds per km as M:SS min/km (e.g. 5:30 min/km)."""
-        if v is None or not isinstance(v, (int, float)) or v <= 0:
-            return "-"
-        total = int(round(v))  # nearest second
-        m = total // 60
-        s = total % 60
+    avg_hr = summary.get("avg_hr_bpm")
+    max_hr = summary.get("max_hr_bpm")
+    
+    def _pace_str(v):
+        if not v: return "-"
+        m, s = divmod(int(v), 60)
         return f"{m}:{s:02d} min/km"
 
-    def _safe_mean(values):
-        vals = [float(x) for x in values if isinstance(x, (int, float))]
-        return statistics.mean(vals) if vals else None
-
-    # ---- Podsumowanie liczbowe ----
-    lines: list[str] = []
-    lines.append("Podsumowanie:")
+    lines = ["Podsumowanie:"]
+    # Summary metrics
     if avg_pace:
-        lines.append(f"- Średnie tempo { _pace_str(avg_pace) }.")
+        lines.append(f"- Średnie tempo {_pace_str(avg_pace)}.")
+    best_1k = None
+    for s in splits:
+        if s.get("km") == 1 and s.get("pace_s"):
+            best_1k = s.get("pace_s")
+            break
     if best_1k:
-        lines.append(f"- Najszybszy km w tempie { _pace_str(best_1k) }.")
-    if elev is not None:
-        if elev < 30:
-            prof = "prawie płaska trasa"
-        elif elev < 120:
-            prof = "umiarkowanie pofałdowana trasa"
-        else:
-            prof = "mocno pofałdowana trasa"
-        lines.append(f"- Łączne przewyższenie +{int(elev)} m ({prof}).")
-    if cad:
-        lines.append(f"- Średnia kadencja ~{int(cad)} spm.")
+        lines.append(f"- Najszybszy 1 km w tempie {_pace_str(best_1k)}.")
+    elev_gain = summary.get("elev_gain_m") or summary.get("elevation_gain_m")
+    if elev_gain:
+        lines.append(f"- Łączne przewyższenie +{int(elev_gain)} m.")
+    if avg_hr:
+        lines.append(f"- Średnie tętno {int(avg_hr)} bpm.")
+    if max_hr:
+        lines.append(f"- Tętno maksymalne {int(max_hr)} bpm.")
 
-    # ---- Stabilność tempa ----
-    all_paces = [s.get("pace_s") for s in splits if s.get("pace_s")]
-    improve_tips: list[str] = []
-    good_points: list[str] = []
+    # Split pacing & HR analysis — build structured suggestions (good / suspicious / improve)
+    good_bullets = []
+    suspect_bullets = []
+    improve_bullets = []
 
-    if len(all_paces) >= 3:
-        mean_p = _safe_mean(all_paces)
-        std_p = statistics.pstdev(all_paces) if mean_p else 0.0
-        var_ratio = (std_p / mean_p) if mean_p else 0.0
+    # Analyze splits pacing
+    split_paces = [s.get("pace_s") for s in splits if s.get("pace_s")]
+    split_kms = [s.get("km") for s in splits if s.get("pace_s")]
+    split_hrs = [s.get("hr_bpm") for s in splits if s.get("hr_bpm") is not None]
 
-        if var_ratio < 0.03:
-            good_points.append("Tempo bardzo równe – świetna kontrola intensywności.")
-        elif var_ratio < 0.06:
-            good_points.append("Tempo w miarę równe, z niewielkimi wahaniami.")
-        else:
-            improve_tips.append(
-                "Tempo mocno się wahało – spróbuj trzymać stały rytm, zwłaszcza na płaskich odcinkach."
-            )
+    # precompute median pace for heuristics (safe fallback)
+    pace_median = None
+    if split_paces:
+        try:
+            pace_median = statistics.median(split_paces)
+        except Exception:
+            pace_median = None
 
-    # ---- Początek vs koniec biegu ----
-    n = len(splits)
-    if n >= 3:
+    if len(split_paces) >= 3:
+        # compare early/mid/late
+        n = len(split_paces)
         third = max(1, n // 3)
-        begin = _safe_mean(s["pace_s"] for s in splits[:third])
-        middle = _safe_mean(s["pace_s"] for s in splits[third : 2 * third])
-        end = _safe_mean(s["pace_s"] for s in splits[2 * third :])
+        p_begin = split_paces[:third]
+        p_mid = split_paces[third:2*third]
+        p_end = split_paces[2*third:]
+        mean_begin = sum(p_begin)/len(p_begin) if p_begin else None
+        mean_end = sum(p_end)/len(p_end) if p_end else None
+        if mean_begin and mean_end:
+            diff = mean_end - mean_begin
+            if diff < -10:
+                good_bullets.append("Świetny negative split – końcówka szybsza niż początek.")
+            elif diff > 10:
+                improve_bullets.append("Końcówka wyraźnie wolniejsza niż na początku – spróbuj zaczynać nieco wolniej.")
+            else:
+                good_bullets.append("Tempo było bardzo równe między początkiem a końcem biegu.")
 
-        if begin and end:
-            delta = end - begin  # dodatnie = wolniejsza końcówka
-            diff = abs(delta)
+    # Detect single very slow or very fast km (pauses or GPS issues)
+    if split_paces:
+        med = statistics.median(split_paces)
+        for s in splits:
+            ps = s.get("pace_s")
+            if not ps:
+                continue
+            if ps > med * 1.6 or ps - med > 60:
+                suspect_bullets.append(f"Nietypowo wolny km {s.get('km')} ({int(ps)} s/km) – możliwa przerwa lub błąd GPS.")
+            elif ps < med * 0.6 or med - ps > 45:
+                # unusually fast kilometer (maybe downhill or GPS spike)
+                suspect_bullets.append(f"Bardzo szybki km {s.get('km')} ({int(ps)} s/km) – sprawdź, czy to nie krótki zjazd lub błąd pomiaru.")
 
-            if diff <= 5:
-                good_points.append(
-                    "Początek i koniec biegu były w bardzo podobnym tempie – bieg równy."
-                )
-            elif delta > 5:
-                improve_tips.append(
-                    f"Końcówka była wolniejsza o ok. {int(delta)} s/km. "
-                    "Spróbuj zaczynać odrobinę spokojniej, żeby utrzymać tempo do końca."
-                )
-            else:  # delta < -5 (negative split)
-                good_points.append(
-                    f"Druga część biegu była szybsza o ok. {int(-delta)} s/km – bardzo dobra dystrybucja sił (negative split)."
-                )
+    # HR-based observations
+    if split_hrs and avg_hr:
+        try:
+            first_hr = next((s.get('hr_bpm') for s in splits if s.get('hr_bpm') is not None), None)
+            last_hr = next((s.get('hr_bpm') for s in reversed(splits) if s.get('hr_bpm') is not None), None)
+            if first_hr and last_hr and (last_hr - first_hr) >= 8:
+                improve_bullets.append('Tętno rośnie w czasie treningu — możliwy wzrost zmęczenia. Zadbaj o pacing i nawodnienie.')
+        except Exception:
+            pass
 
-        # dodatkowo lekki komentarz o środku biegu
-        if middle and begin and end:
-            if middle > max(begin, end) + 5:
-                improve_tips.append(
-                    "Środkowa część biegu była wyraźnie wolniejsza – uważaj, żeby nie wybijać się z rytmu np. na nawrotkach lub podbiegach."
-                )
+    # HR vs pace mismatches: wysoki HR przy wolnym tempie -> możliwy wysiłek na podbiegach lub przeszarżowanie
+    if split_paces and split_hrs and avg_hr is not None:
+        for s in splits:
+            ps = s.get('pace_s')
+            hrv = s.get('hr_bpm')
+            if ps and hrv:
+                # compare against median pace or summary avg pace
+                ref_pace = summary.get('avg_pace_s_per_km') if summary.get('avg_pace_s_per_km') is not None else (pace_median or 0)
+                if hrv > (avg_hr + 12) and ps > (ref_pace + 15):
+                    suspect_bullets.append(f"W km {s.get('km')} tętno ({int(hrv)} bpm) wyższe niż średnie przy wolniejszym tempie — możliwe podbiegi lub przeszarżowanie.")
 
-    # ---- Składamy końcowy tekst ----
-    if good_points:
-        lines.append("")
-        lines.append("Co poszło dobrze:")
-        for g in good_points:
-            lines.append(f"- {g}")
+    # Chart-level sudden spikes (tempo) — wykryj duże skoki w wykresie tempa
+    chart_pace = chart.get('pace_s') or []
+    if chart_pace and len(chart_pace) >= 3:
+        for i in range(1, len(chart_pace)):
+            a = chart_pace[i-1]
+            b = chart_pace[i]
+            if a is None or b is None: continue
+            if abs(b - a) > 30:
+                suspect_bullets.append('Wykres pokazuje gwałtowny skok tempa — możliwy pomiarowy spike lub krótka przerwa.')
+                break
 
-    if improve_tips:
-        lines.append("")
-        lines.append("Na co zwrócić uwagę:")
-        for tip in improve_tips:
-            lines.append(f"- {tip}")
+    # Cadence hints (from adidas_meta or summary)
+    cadence = summary.get('avg_cadence_spm') or (adidas_meta.get('steps') and adidas_meta['steps'].get('average_step_rate_spm'))
+    if cadence:
+        try:
+            c = float(cadence)
+            if c < 150:
+                improve_bullets.append('Średnia kadencja jest niska — praca nad kadencją (drille) może poprawić ekonomię biegu.')
+            elif c > 190:
+                improve_bullets.append('Bardzo wysoka kadencja — upewnij się, że technika i długość kroku są odpowiednie.')
+            else:
+                good_bullets.append('Kadencja w zdrowym zakresie — dobra technika kroku.')
+        except Exception:
+            pass
 
-    # ---- Wskazówki na podstawie wzrostu / wagi ----
-    if user_height_cm or user_weight:
-        lines.append("")
-        lines.append("Wskazówki antropometryczne:")
-        # BMI – orientacyjne (jeśli oba parametry są dostępne)
-        if user_height_cm and user_weight:
-            try:
-                h_m = float(user_height_cm) / 100.0
-                bmi = float(user_weight) / (h_m ** 2) if h_m > 0 else None
-            except Exception:
-                bmi = None
-            if bmi:
-                if bmi < 18.5:
-                    lines.append("- BMI sugeruje niedowagę – zadbaj o odpowiednie odżywienie i regenerację.")
-                elif bmi < 25:
-                    lines.append("- BMI w normie – dobra baza do progresu szybkości i wytrzymałości.")
-                elif bmi < 30:
-                    lines.append("- BMI powyżej normy – delikatna redukcja masy może poprawić ekonomię biegu.")
-                else:
-                    lines.append("- Wysokie BMI – rozważ konsultację z trenerem / dietetykiem dla optymalizacji obciążeń.")
+    # Compose sections into lines (preserve existing order semantics)
+    if good_bullets:
+        lines.append("\nCo poszło dobrze:")
+        for b in good_bullets:
+            lines.append(f"- {b}")
+    if suspect_bullets:
+        lines.append("\nPodejrzane:")
+        for b in suspect_bullets:
+            lines.append(f"- {b}")
+    if improve_bullets:
+        lines.append("\nNa co zwrócić uwagę:")
+        for b in improve_bullets:
+            lines.append(f"- {b}")
 
-        # Szacowana długość kroku vs oczekiwana (jeśli mamy tempo i kadencję)
-        avg_pace_val = avg_pace if isinstance(avg_pace, (int, float)) else None
-        cad_val = cad if isinstance(cad, (int, float)) else None
-        if user_height_cm and avg_pace_val and cad_val and avg_pace_val > 0 and cad_val > 0 and summary.get("distance_m") and summary.get("duration_s"):
-            speed_m_s = (summary["distance_m"] / summary["duration_s"]) if summary.get("duration_s") else None
-            if speed_m_s and speed_m_s > 0:
-                steps_per_s = cad_val / 60.0
-                stride_len_m = speed_m_s / steps_per_s if steps_per_s > 0 else None
-                # Oczekiwany zakres (orientacyjnie 0.38–0.46 * wzrost) dla biegu ciągłego
-                expected_min = (float(user_height_cm) / 100.0) * 0.38
-                expected_max = (float(user_height_cm) / 100.0) * 0.46
-                if stride_len_m:
-                    lines.append(f"- Szacowana długość kroku ~{stride_len_m:.2f} m (typowy zakres {expected_min:.2f}–{expected_max:.2f} m).")
-                    if stride_len_m < expected_min * 0.95:
-                        lines.append("  Kroki krótsze niż typowe – możesz popracować nad mocą wybicia / mobilnością bioder.")
-                    elif stride_len_m > expected_max * 1.05:
-                        lines.append("  Kroki dłuższe niż typowe – zwróć uwagę czy nie powoduje to nadmiernego lądowania przed środkiem ciężkości.")
+    # Weather / hydration hints
+    weather = adidas_meta.get("weather") or {}
+    temp_c = weather.get("temperature_c")
+    humidity = weather.get("humidity_percent")
+    dehydration_ml = adidas_meta.get("dehydration_volume_ml")
+    # ensure we don't duplicate the 'Na co zwrócić uwagę' header if it was added above
+    improve_section_added = any(l.strip().startswith('Na co zwrócić uwagę:') for l in lines)
+    if temp_c is not None or dehydration_ml is not None or humidity is not None:
+        if not improve_section_added:
+            lines.append("\nNa co zwrócić uwagę:")
+            improve_section_added = True
+        if temp_c and temp_c >= 24:
+            lines.append("- Wysoka temperatura – rozważ zwiększenie nawodnienia i chłodzenia.")
+        if humidity and humidity >= 75:
+            lines.append("- Wysoka wilgotność – tętno może być wyższe, pilnuj tempa początkowego.")
+        if dehydration_ml and dehydration_ml > 1000:
+            lines.append("- Duża utrata płynów – uzupełnij elektrolity po treningu.")
 
-        # Kadencja – orientacyjne widełki 165–185 spm dla większości biegaczy
-        if cad_val:
-            if cad_val < 160:
-                lines.append("- Kadencja poniżej 160 spm – podniesienie o kilka kroków/min może poprawić ekonomię.")
-            elif cad_val > 190:
-                lines.append("- Bardzo wysoka kadencja (>190 spm) – upewnij się, że nie skracasz nadmiernie kroku.")
+    # Anthropometric suggestions (BMI) — detailed info and weight range
+    weight = user_weight
+    height_cm = user_height_cm
+    if weight and height_cm:
+        try:
+            h_m = float(height_cm) / 100.0
+            bmi = float(weight) / (h_m * h_m)
+        except Exception:
+            bmi = None
+        if bmi:
+            bmi_val = round(bmi, 2)
+            # ideal weight range for BMI 18.5 .. 24.99
+            min_w = 18.5 * (h_m * h_m)
+            max_w = 24.99 * (h_m * h_m)
+            min_w_r = round(min_w, 2)
+            max_w_r = round(max_w, 2)
+            lines.append(f"\nWynik BMI: {bmi_val}")
+            lines.append(f"Prawidłowa waga dla wzrostu {int(round(height_cm))} cm wynosi między {min_w_r} a {max_w_r} kg.")
+
+            # informacja o odległości od granic
+            w = float(weight)
+            if bmi < 18.5:
+                need = round(min_w - w, 1)
+                if need <= 0:
+                    need = 0.0
+                lines.append(f"Brakuje około {need} kg do dolnej granicy normy (BMI 18.5).")
+            elif bmi > 24.99:
+                over = round(w - max_w, 1)
+                if over <= 0:
+                    over = 0.0
+                lines.append(f"Masz około {over} kg powyżej górnej granicy normy (BMI 24.99).")
+            else:
+                to_upper = round(max_w - w, 1)
+                to_lower = round(w - min_w, 1)
+                lines.append(f"Jesteś w normie BMI. Do górnej granicy brakuje Ci około {to_upper} kg, do dolnej jest {to_lower} kg.")
+            # krótka rekomendacja
+            if bmi < 18.5:
+                lines.append("- Rekomendacja: zwiększ kaloryczność i pracuj nad siłą mięśniową.")
+            elif bmi < 25:
+                lines.append("- Rekomendacja: dobra baza — możesz pracować nad prędkością i wytrzymałością.")
+            elif bmi < 30:
+                lines.append("- Rekomendacja: priorytetem umiarkowana intensywność i stopniowe zwiększanie objętości.")
+            else:
+                lines.append("- Rekomendacja: kontrola intensywności, regularność i konsultacja medyczna jeśli potrzeba.")
 
     resp["ai_note"] = "\n".join(lines)
 
-    resp["ai_note"] = "\n".join(lines)
-
-    # Zwracamy pełną odpowiedź JSON z analizą
     return JsonResponse(resp)
-
