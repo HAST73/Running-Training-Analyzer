@@ -538,7 +538,6 @@ export default function WorkoutAnalysis() {
                   </p>
                 )}
                 <div><strong>Kalorie:</strong> {data.calories_kcal ? Math.round(data.calories_kcal) + ' kcal' : (data.analysis?.summary?.calories_kcal != null ? Math.round(data.analysis?.summary?.calories_kcal) + ' kcal' : '-')}</div>
-                <div><strong>Śr. kadencja:</strong> {avgCadence != null ? Math.round(avgCadence) + ' spm' : '-'}</div>
                 {avgHr != null && (
                   <div style={{fontWeight: 600}}><strong>Śr. tętno:</strong> {Math.round(avgHr)} bpm</div>
                 )}
