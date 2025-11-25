@@ -1,0 +1,25 @@
+
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="Running-Training-Analyzer test fixture" xmlns="http://www.topografix.com/GPX/1/1">
+	<metadata>
+		<name>test_20240412_track</name>
+		<time>2024-04-12T17:36:17.000Z</time>
+	</metadata>
+	<trk>
+		<name>test track</name>
+		<trkseg>
+			<trkpt lat="51.102157" lon="17.053318">
+				<ele>120.0</ele>
+				<time>2024-04-12T17:36:17.000Z</time>
+			</trkpt>
+			<trkpt lat="51.103000" lon="17.054000">
+				<ele>121.0</ele>
+				<time>2024-04-12T17:36:47.000Z</time>
+			</trkpt>
+			<trkpt lat="51.104000" lon="17.055000">
+				<ele>122.0</ele>
+				<time>2024-04-12T17:37:17.000Z</time>
+			</trkpt>
+		</trkseg>
+	</trk>
+</gpx>
