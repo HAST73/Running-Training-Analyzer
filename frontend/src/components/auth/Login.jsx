@@ -16,8 +16,23 @@ function Login({ afterAuth }) {
         body: JSON.stringify({ username, password }),
       });
       if (!res.ok) {
-        const data = await res.json();
-        setError(data.error || 'Błąd logowania');
+        const data = await res.json().catch(() => ({}));
+        let serverMsg = data.error || '';
+        serverMsg = (serverMsg || '').toString();
+        // Translate common English backend messages to Polish for UX clarity
+        let friendly = 'Błąd logowania';
+        const lower = serverMsg.toLowerCase();
+        if (lower.includes('invalid credentials') || lower.includes('invalid')) {
+          friendly = 'Nieprawidłowa nazwa użytkownika lub hasło';
+        } else if (lower.includes('post required') || lower.includes('post required')) {
+          friendly = 'Żądanie powinno być wysłane metodą POST';
+        } else if (lower.includes('missing') || lower.includes('required')) {
+          friendly = 'Brakuje wymaganych danych logowania';
+        } else if (serverMsg) {
+          // fallback: show server message but in Polish context
+          friendly = serverMsg;
+        }
+        setError(friendly);
         return;
       }
       afterAuth && afterAuth();

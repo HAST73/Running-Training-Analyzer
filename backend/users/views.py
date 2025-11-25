@@ -255,6 +255,30 @@ def profile(request):
 	return JsonResponse({"status": "ok", **changed})
 
 
+def check_username(request):
+	"""Simple availability check used by frontend (GET). Returns {available: true/false/null}.
+	If username is empty returns available=null."""
+	if request.method != 'GET':
+		return JsonResponse({"error": "GET required"}, status=405)
+	username = (request.GET.get('username') or '').strip()
+	if not username:
+		return JsonResponse({"available": None})
+	available = not User.objects.filter(username=username).exists()
+	return JsonResponse({"available": available})
+
+
+def check_email(request):
+	"""Simple availability check for email (GET). Returns {available: true/false/null}."""
+	if request.method != 'GET':
+		return JsonResponse({"error": "GET required"}, status=405)
+	email = (request.GET.get('email') or '').strip()
+	if not email:
+		return JsonResponse({"available": None})
+	# case-insensitive check
+	available = not User.objects.filter(email__iexact=email).exists()
+	return JsonResponse({"available": available})
+
+
 @csrf_exempt
 def recent_activity(request):
 	"""Return recent activity log items for the current user.
