@@ -133,7 +133,6 @@ function Workouts() {
   const handleStravaFileChange = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
-
     try {
       const formData = new FormData();
       formData.append('file', file);
@@ -152,6 +151,9 @@ function Workouts() {
       await fetchWorkouts();
       setError('');
       setSourceInfo('Zaimportowano trening ze Stravy (.fit).');
+    } catch (e) {
+      console.error(e);
+      setError('Nie udało się zaimportować pliku Strava (.fit).');
     } finally {
       event.target.value = '';
     }
