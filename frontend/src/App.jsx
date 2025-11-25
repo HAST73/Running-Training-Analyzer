@@ -94,7 +94,9 @@ function App() {
       </h1>
       <nav>
         <div className="nav-left">
-          <a href="#home" className={isActive('#home') ? 'active' : ''}>Strona główna</a>
+          {!(route === '#login' || route === '#register') && (
+            <a href="#home" className={isActive('#home') ? 'active' : ''}>Strona główna</a>
+          )}
           {!authed && (
             <>
               <a href="#login" className={isActive('#login') ? 'active' : ''}>Logowanie</a>

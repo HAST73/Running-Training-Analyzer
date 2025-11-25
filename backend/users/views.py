@@ -55,8 +55,21 @@ def register(request):
 	password = data.get("password")
 	if not all([username, email, password]):
 		return JsonResponse({"error": "username, email, password required"}, status=400)
+
+	# Basic validations
+	import re
+	# Username uniqueness
 	if User.objects.filter(username=username).exists():
 		return JsonResponse({"error": "Username taken"}, status=409)
+	# Email format
+	if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+		return JsonResponse({"error": "Invalid email format"}, status=400)
+	# Email uniqueness
+	if User.objects.filter(email__iexact=email).exists():
+		return JsonResponse({"error": "Email taken"}, status=409)
+	# Password strength: min 8, at least one uppercase and one special char
+	if len(password) < 8 or not re.search(r"[A-Z]", password) or not re.search(r"[^A-Za-z0-9]", password):
+		return JsonResponse({"error": "Weak password"}, status=400)
 
 	height_cm = data.get("height_cm")
 	weight_kg = data.get("weight_kg")
