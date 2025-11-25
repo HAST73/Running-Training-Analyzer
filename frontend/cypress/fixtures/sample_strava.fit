@@ -1,0 +1,3 @@
+FIT_PLACEHOLDER
+This is a small placeholder file used by Cypress tests to simulate a .fit upload.
+Replace with a real .fit file from your samples if you need full parsing behavior.
