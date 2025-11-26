@@ -202,8 +202,13 @@ function Workouts() {
   };
 
   return (
-    <section>
+    <section className="workouts-section">
+
+      {/* Biały wrapper obejmujący importy, tytuł i listy treningów */}
+      <div className="auth-card" style={{ margin: '0 auto', maxWidth: '1300px', padding: '1.2rem' }}>
+
       <h2 style={{ textAlign: 'center', marginBottom: '1.5em' }}>Moje treningi</h2>
+
       <div
         style={{
           display: 'grid',
@@ -665,6 +670,8 @@ function Workouts() {
           </div>
         </div>
       )}
+
+      </div>{/* koniec auth-card wrapper */}
     </section>
   );
 }

@@ -6,3 +6,39 @@
 .workout-item {}
 .analysis-header {}
 */
+
+/* Specific overrides for the Workouts page to avoid double-card effect
+    (global `section` rule in `global.css` applies a white glass card to all sections).
+    We keep the inner `.auth-card` as the single visible white panel. */
+.workouts-section {
+   background: transparent !important;
+   backdrop-filter: none !important;
+   margin: 0 !important;
+   padding: 0 !important;
+   border: none !important;
+   box-shadow: none !important;
+   max-width: none !important;
+}
+
+.workouts-section > .auth-card {
+   /* tighten the card a bit and make sure it fills the area we want */
+   max-width: 1100px !important;
+   /* mniejszy margines górny; zredukowany dolny margines + translate podnosi kartę
+      bez rozciągania layoutu (bez zmiany flow dokumentu) */
+   margin: 0.4rem auto 0.6rem !important;
+   padding: 1.4rem !important;
+   transform: translateY(-16px);
+}
+
+/* Make the two-column grid inside the card align nicely */
+.workouts-section .workouts-grid {
+   display: grid;
+   grid-template-columns: repeat(2, minmax(320px, 1fr));
+   gap: 2.25rem;
+}
+
+/* Small responsive tweak */
+@media (max-width: 900px) {
+   .workouts-section .workouts-grid { grid-template-columns: 1fr; gap: 1rem; }
+   .workouts-section > .auth-card { padding: 1rem !important; }
+}
