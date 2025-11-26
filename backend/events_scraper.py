@@ -1,259 +1,210 @@
-from datetime import datetime
-from urllib.parse import urljoin
-import re
-
 import requests
 from bs4 import BeautifulSoup
+from datetime import datetime, date
+from urllib.parse import urljoin
+import re
+import warnings
 
+# Wyłączenie ostrzeżeń SSL
+from requests.packages.urllib3.exceptions import InsecureRequestWarning
+requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
+
+# --- DANE ZASTĘPCZE (MOCK) ---
+MOCK_POLAND = [{"name": "Brak danych", "date": "2024-01-01", "place": "Sprawdź konsolę", "url": "#"}]
+MOCK_WORLD = [{"name": "Brak danych", "date": "2024-01-01", "place": "Sprawdź konsolę", "url": "#"}]
+
+MONTHS_PL = {
+    1: "styczen", 2: "luty", 3: "marzec", 4: "kwiecien",
+    5: "maj", 6: "czerwiec", 7: "lipiec", 8: "sierpien",
+    9: "wrzesien", 10: "pazdziernik", 11: "listopad", 12: "grudzien",
+}
+
+def _clean_text(text: str) -> str:
+    if not text:
+        return ""
+    garbage = ["Kliknij tutaj", "ZAKRES WYSZUKIWANIA", "->", "Dzień:", "Dzien:", "\xa0", "&nbsp;"]
+    cleaned = text
+    for g in garbage:
+        cleaned = cleaned.replace(g, "")
+    return " ".join(cleaned.split())
 
 def _parse_date(date_str: str):
-    """
-    Parsuje datę z formatu:
-      - '2.11.2025 (nd)'
-      - '2026.1.6 (wt)'
-    Zwraca obiekt datetime.date lub None.
-    """
     if not date_str:
         return None
-
-    clean = date_str.strip()
-
-    # utnij wszystko po spacji lub nawiasie, np. '2.11.2025 (nd)' -> '2.11.2025'
-    for sep in ("(", " "):
-        if sep in clean:
-            clean = clean.split(sep)[0]
-            break
-
-    for fmt in ("%d.%m.%Y", "%Y.%m.%d"):
+    clean = re.sub(r'\(.*?\)', '', date_str).strip()
+    formats = ["%d.%m.%Y", "%Y.%m.%d", "%d-%m-%Y", "%d.%m.%y"]
+    for fmt in formats:
         try:
             return datetime.strptime(clean, fmt).date()
         except ValueError:
             continue
-
     return None
 
+def _fetch_html(params):
+    url = "https://www.maratonypolskie.pl/mp_index.php"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
+    try:
+        resp = requests.post(url, data=params, headers=headers, timeout=8, verify=False)
+        resp.encoding = "iso-8859-2"
+        return resp.text if resp.status_code == 200 else None
+    except Exception as e:
+        print(f"DEBUG: Wyjątek sieciowy: {e}")
+        return None
 
-MONTHS_PL = {
-    1: "styczen",
-    2: "luty",
-    3: "marzec",
-    4: "kwiecien",
-    5: "maj",
-    6: "czerwiec",
-    7: "lipiec",
-    8: "sierpien",
-    9: "wrzesien",
-    10: "pazdziernik",
-    11: "listopad",
-    12: "grudzien",
-}
-
-COUNTRIES = {
-    "Włochy",
-    "Hiszpania",
-    "Ukraina",
-    "Francja",
-    "Niemcy",
-    "Wielka",
-    "Brytania",
-    "Portugalia",
-    "USA",
-    "Cypr",
-    "Czechy",
-    "Szwajcaria",
-    "Austria",
-    "Grecja",
-    "Wietnam",
-    # dopiszesz sobie kolejne jak będziesz potrzebował
-}
-
-
-def _fetch_for_params(params: dict) -> str:
-    """Wysyła pojedyncze zapytanie POST do maratonypolskie.pl z danymi formularza."""
-    resp = requests.post(
-        "https://www.maratonypolskie.pl/mp_index.php",
-        data=params,
-        timeout=10,
-    )
-    resp.raise_for_status()
-    # Strona używa ISO-8859-2 (Central European), ustawiamy ręcznie, żeby uniknąć krzaków
-    resp.encoding = "iso-8859-2"
-    return resp.text
-
-
-def _parse_events_from_html(html: str) -> list[dict]:
-    """Parsuje biegi z dostarczonego HTML-a (pojedyncza odpowiedź)."""
-    soup = BeautifulSoup(html, "html.parser")
-    text = soup.get_text(" ", strip=True)
-
-    # np. "23.11.2025" albo "2025.11.23"
-    date_pattern = re.compile(r"(\d{1,4}\.\d{1,2}\.\d{4})")
-
-    events: list[dict] = []
-
-    for match in date_pattern.finditer(text):
-        date_str = match.group(1)
-        date_obj = _parse_date(date_str)
-        if not date_obj:
+def _parse_events_from_html(html_content, base_url="https://www.maratonypolskie.pl/"):
+    if not html_content:
+        return []
+    soup = BeautifulSoup(html_content, "html.parser")
+    events = []
+    rows = soup.find_all("tr")
+    
+    for row in rows:
+        row_text = row.get_text()
+        
+        # Filtrowanie nagłówków reklamowych
+        if "ZOBACZ OFERT" in row_text.upper() or "WYDARZENIA PROMOWANE" in row_text.upper():
+            continue
+            
+        cols = row.find_all("td")
+        if len(cols) < 3:
+            continue
+            
+        # 1. Szukamy DATY
+        event_date = None
+        date_col_idx = -1
+        
+        for idx in range(0, min(3, len(cols))):
+            txt = cols[idx].get_text(strip=True)
+            if re.search(r'\d+\.\d+', txt):
+                parsed = _parse_date(txt)
+                if parsed:
+                    event_date = parsed
+                    date_col_idx = idx
+                    break
+        
+        if not event_date:
             continue
 
-        # bierzemy ~200 znaków po dacie jako "kontekst"
-        end = min(len(text), match.end() + 200)
-        after = text[match.end() : end]
+        # 2. Szukamy MIEJSCA i NAZWY
+        place = ""
+        name = ""
+        url = ""
+        
+        found_texts = []
+        for idx in range(date_col_idx + 1, len(cols)):
+            cell = cols[idx]
+            txt = _clean_text(cell.get_text(" ", strip=True))
+            if len(txt) > 1:
+                link = cell.find("a")
+                found_texts.append({
+                    "text": txt,
+                    "has_link": bool(link),
+                    "href": link["href"] if link and link.has_attr("href") else ""
+                })
 
-        # utnij do kolejnej daty (żeby nie mieszać dwóch wydarzeń naraz)
-        next_date = date_pattern.search(after)
-        if next_date:
-            after = after[: next_date.start()]
+        # Zazwyczaj pierwszy element to Miejsce, drugi to Nazwa
+        if len(found_texts) >= 1:
+            place = found_texts[0]["text"]
+            if len(found_texts) >= 2:
+                name = found_texts[1]["text"]
+                if found_texts[1]["href"]:
+                     url = urljoin(base_url, found_texts[1]["href"]) if not found_texts[1]["href"].startswith("http") else found_texts[1]["href"]
 
-        parts = after.strip().split()
-        if len(parts) < 2:
-            continue
-
-        # wywal nawiasy typu (ITA), (ESP) itp.
-        parts = [p for p in parts if not (p.startswith("(") and p.endswith(")"))]
-        if len(parts) < 2:
-            continue
-
-        # domyślnie miasto = pierwszy token
-        city_tokens = [parts[0]]
-        name_start_idx = 1
-
-        # jeśli zaraz po mieście występuje nazwa kraju (np. "Włochy", "Hiszpania"),
-        # to dorzuć ją do city, a name zaczynaj dopiero po niej
-        if len(parts) >= 2 and parts[1] in COUNTRIES:
-            city_tokens.append(parts[1])
-            name_start_idx = 2
-
-        city = " ".join(city_tokens).strip(",.")
-        name = " ".join(parts[name_start_idx:]).strip()
-        if not name:
-            continue
-
-        events.append(
-            {
-                "date": date_obj,
-                "city": city,
+        if name and place:
+            events.append({
                 "name": name,
-                "url": None,
-                "source": "maratonypolskie.pl",
-            }
-        )
-
+                "date": event_date,
+                "place": place,
+                "url": url,
+            })
+            
     return events
 
-
-def fetch_poland_events(limit: int = 20) -> list[dict]:
-    """Pobiera biegi w Polsce dla bieżącego roku i +1 (np. 2025 i 2026)."""
-
+def _fetch_events_generic(mapa_nazwa: str, limit: int) -> list[dict]:
+    print(f"\n[SCRAPER] Pobieranie: {mapa_nazwa}")
     today = datetime.now().date()
     current_year = today.year
-    years = [current_year, current_year + 1]
-
-    all_events: list[dict] = []
-
-    for year in years:
-        for month_num, month_name in MONTHS_PL.items():
-            params = {
-                "dzienp1": "1",
-                "dzienk1": "31",
-                "czasm1": month_name,
-                "czasr1": str(year),
-                "wojew": "Wszystkie",
-                "mapa_nazwa": "Polska",
-                "mapa_tryb2": "Tekstowo",
-                "grp": "13",
-                "wielkosc": "2",
-                "dzial": "3",
-                "action": "1",
-            }
-
-            try:
-                html = _fetch_for_params(params)
-                events = _parse_events_from_html(html)
-                all_events.extend(events)
-            except Exception:
-                continue
-
-    # filtrujemy tylko przyszłe wydarzenia (>= dziś),
-    # bez dodatkowego sprawdzania "year in years", bo to potrafi wyzerować listę
-    filtered = [e for e in all_events if e["date"] and e["date"] >= today]
-    filtered.sort(key=lambda e: e["date"])  # sort po dacie
-
-    # usunięcie duplikatów po (date, city, name)
-    seen = set()
-    unique: list[dict] = []
-    for e in filtered:
-        key = (e["date"], e["city"], e["name"])
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append(e)
-
-    result = unique
-    if limit is not None:
-        result = result[:limit]
-
-    return [
-        {
-            **e,
-            "date": e["date"].isoformat(),
-        }
-        for e in result
-    ]
-
-
-def fetch_world_events(limit: int = 200) -> list[dict]:
-    """Pobiera biegi ze świata z maratonypolskie.pl."""
-
-    today = datetime.now().date()
-    current_year = today.year
-    years = [current_year, current_year + 1]
-
-    all_events: list[dict] = []
+    
+    # Pobieramy bieżący rok i 2 kolejne
+    years = [current_year, current_year + 1, current_year + 2]
+    all_events = []
 
     for year in years:
-        for month_num, month_name in MONTHS_PL.items():
+        start_month = today.month if year == current_year else 1
+        
+        for m in range(start_month, 13):
+            # Zwiększyłem limit bufora, żeby nie przerywało za wcześnie
+            if len(all_events) >= limit + 200: 
+                break
+                
+            print(f"DEBUG: Pobieram {year}-{m}...")
             params = {
-                "dzienp1": "1",
-                "dzienk1": "31",
-                "czasm1": month_name,
-                "czasr1": str(year),
-                "mapa_nazwa": "Swiat",
+                "dzienp1": "1", "dzienk1": "31",
+                "czasm1": MONTHS_PL[m], "czasr1": str(year),
+                "mapa_nazwa": mapa_nazwa,
                 "mapa_tryb2": "Tekstowo",
-                "grp": "13",
-                "wielkosc": "2",
-                "dzial": "3",
-                "action": "1",
+                "grp": "13", "wielkosc": "2", "dzial": "3", "action": "1"
             }
+            html = _fetch_html(params)
+            
+            if html:
+                found = _parse_events_from_html(html)
+                
+                # --- KLUCZOWA POPRAWKA: ŚCISŁA KONTROLA DATY ---
+                # Odrzucamy "promowane" biegi, które strona wkleja z inną datą niż ta, o którą pytamy.
+                valid_for_month = []
+                for ev in found:
+                    if ev['date'].year == year and ev['date'].month == m:
+                        valid_for_month.append(ev)
+                    # else:
+                        # print(f"DEBUG: Odrzucono promowany/błędny: {ev['name']} ({ev['date']}) podczas pytania o {year}-{m}")
+                
+                all_events.extend(valid_for_month)
 
-            try:
-                html = _fetch_for_params(params)
-                events = _parse_events_from_html(html)
-                all_events.extend(events)
-            except Exception:
-                continue
+        if len(all_events) >= limit + 200:
+            break
 
-    filtered = [e for e in all_events if e["date"] and e["date"] >= today]
-    filtered.sort(key=lambda e: e["date"])
-
+    unique = []
     seen = set()
-    unique: list[dict] = []
-    for e in filtered:
-        key = (e["date"], e["city"], e["name"])
-        if key in seen:
+    all_events.sort(key=lambda x: x["date"])
+    
+    for e in all_events:
+        if e["date"] < today: continue
+        k = (e["name"], e["date"])
+        if k not in seen:
+            seen.add(k)
+            e["date"] = e["date"].isoformat()
+            unique.append(e)
+            
+    print(f"[SCRAPER] Wynik {mapa_nazwa}: {len(unique)} unikalnych przyszłych.")
+    return unique
+
+def fetch_poland_events(limit: int = 100) -> list[dict]:
+    raw = _fetch_events_generic("Polska", limit)
+    clean = []
+    for ev in raw:
+        # Usuwamy te, które mają kod kraju (np. GER) - zabezpieczenie
+        if re.search(r'\([A-Z]{2,3}\)', ev["place"]):
             continue
-        seen.add(key)
-        unique.append(e)
+        clean.append(ev)
+    return clean[:limit]
 
-    result = unique
-    if limit is not None:
-        result = result[:limit]
-
-    return [
-        {
-            **e,
-            "date": e["date"].isoformat(),
-        }
-        for e in result
-    ]
+def fetch_world_events(limit: int = 100) -> list[dict]:
+    # Pobieramy więcej, bo dużo odpadnie przy filtracji
+    raw = _fetch_events_generic("Swiat", limit + 200)
+    clean = []
+    
+    for ev in raw:
+        place = ev["place"]
+        # Filtr Świata: Musi mieć kod kraju w nawiasie np. (GER)
+        has_country_code = bool(re.search(r'\([A-Z]{2,3}\)', place))
+        
+        if has_country_code:
+            clean.append(ev)
+            
+    if not clean:
+        return MOCK_WORLD
+    return clean[:limit]

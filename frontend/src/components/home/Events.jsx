@@ -1,237 +1,175 @@
-// Feature version of Events component (migrated from root Events.jsx)
 import React, { useEffect, useState } from 'react';
 
-const CLEAN_MARKERS = ['Kliknij tutaj', 'ZAKRES WYSZUKIWANIA', 'Dzień:', 'Dzien:', '->'];
-
+const CLEAN_MARKERS = ['Kliknij tutaj', 'ZAKRES WYSZUKIWANIA', 'Dzień:', 'Dzien:', '->', 'ZOBACZ OFERTĘ'];
 const cleanEventName = (name = '') => {
-	let result = name;
-	CLEAN_MARKERS.forEach((marker) => {
-		const idx = result.indexOf(marker);
-		if (idx !== -1) result = result.slice(0, idx).trim();
-	});
-	return result;
+    let result = name;
+    CLEAN_MARKERS.forEach((marker) => {
+        const idx = result.indexOf(marker);
+        if (idx !== -1) result = result.slice(0, idx).trim();
+    });
+    return result;
 };
 
 function Events() {
-	const [polandEvents, setPolandEvents] = useState([]);
-	const [worldEvents, setWorldEvents] = useState([]);
-	const [loading, setLoading] = useState(true);
-	const [error, setError] = useState('');
-	const [fromDate, setFromDate] = useState('');
-	const [sortByCity, setSortByCity] = useState(false);
-	const [search, setSearch] = useState('');
-	const [worldFromDate, setWorldFromDate] = useState('');
-	const [worldCountry, setWorldCountry] = useState('');
+    const [polandEvents, setPolandEvents] = useState([]);
+    const [worldEvents, setWorldEvents] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    
+    // Domyślne daty "dzisiaj"
+    const [fromDate, setFromDate] = useState(new Date().toISOString().split('T')[0]);
+    const [worldFromDate, setWorldFromDate] = useState(new Date().toISOString().split('T')[0]);
+    
+    const [sortByCity, setSortByCity] = useState(false);
+    const [search, setSearch] = useState('');
+    const [worldCountry, setWorldCountry] = useState('');
+    const [sortWorldByLocation, setSortWorldByLocation] = useState(false);
 
-	useEffect(() => {
-		const fetchEvents = async () => {
-			setLoading(true);
-			try {
-				const res = await fetch('http://127.0.0.1:8000/api/events/?limit=100', { credentials: 'include' });
-				const data = await res.json();
-				if (!res.ok) throw new Error(data.error || 'Nie udało się pobrać wydarzeń.');
-				setPolandEvents(data.poland || []);
-				setWorldEvents(data.world || []);
-				setError('');
-			} catch (e) {
-				console.error(e);
-				setError('Nie udało się pobrać wydarzeń biegowych.');
-			} finally {
-				setLoading(false);
-			}
-		};
-		fetchEvents();
-		const interval = setInterval(fetchEvents, 1000 * 60 * 30);
-		return () => clearInterval(interval);
-	}, []);
+    useEffect(() => {
+        const fetchEvents = async () => {
+            setLoading(true);
+            try {
+                const res = await fetch('http://127.0.0.1:8000/api/events/?limit=100', { credentials: 'include' });
+                const data = await res.json();
+                if (data.poland) setPolandEvents(data.poland);
+                if (data.world) setWorldEvents(data.world);
+            } catch (e) {
+                console.error(e);
+                setError('Nie udało się pobrać wydarzeń.');
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchEvents();
+    }, []);
 
-	const applyFilters = (items) => {
-		let filtered = [...items];
-		if (fromDate) {
-			const from = new Date(fromDate);
-			filtered = filtered.filter((ev) => {
-				if (!ev.date) return false;
-				const d = new Date(ev.date);
-				return d >= from;
-			});
-		}
-		if (search.trim()) {
-			const q = search.trim().toLowerCase();
-			filtered = filtered.filter((ev) => {
-				const name = (ev.name || '').toLowerCase();
-				const city = (ev.city || '').toLowerCase();
-				return name.includes(q) || city.includes(q);
-			});
-		}
-		if (sortByCity) filtered.sort((a, b) => (a.city || '').localeCompare(b.city || ''));
-		return filtered;
-	};
+    const filterEvents = (list, dateFrom, filterText) => {
+        let out = [...list];
+        if (dateFrom) out = out.filter((ev) => ev.date >= dateFrom);
+        if (filterText) {
+            const low = filterText.toLowerCase();
+            out = out.filter((ev) => 
+                (ev.name && ev.name.toLowerCase().includes(low)) || 
+                (ev.place && ev.place.toLowerCase().includes(low))
+            );
+        }
+        return out;
+    };
 
-	const applyWorldFilters = (items) => {
-		let filtered = [...items];
-		if (worldFromDate) {
-			const from = new Date(worldFromDate);
-			filtered = filtered.filter((ev) => {
-				if (!ev.date) return false;
-				const d = new Date(ev.date);
-				return d >= from;
-			});
-		}
-		if (worldCountry.trim()) {
-			const q = worldCountry.trim().toLowerCase();
-			filtered = filtered.filter((ev) => {
-				const name = (ev.name || '').toLowerCase();
-				const city = (ev.city || '').toLowerCase();
-				return name.includes(q) || city.includes(q);
-			});
-		}
-		return filtered;
-	};
+    const renderList = (list, sortEnabled, defaultLocation) => {
+        let display = [...list];
+        if (sortEnabled) {
+            display.sort((a, b) => (a.place || '').localeCompare(b.place || ''));
+        }
 
-	const renderList = (items) => {
-		if (!items.length) return <p style={{ fontSize: '0.9em', color: '#555' }}>Brak nadchodzących biegów.</p>;
-		const prepared = applyFilters(items).map((ev) => ({ ...ev, name: cleanEventName(ev.name) }));
-		if (!prepared.length) return <p style={{ fontSize: '0.9em', color: '#555' }}>Brak nadchodzących biegów.</p>;
-		return (
-			<ul style={{ listStyle: 'none', padding: 0, marginTop: '0.5em' }}>
-				{prepared.map((ev, idx) => (
-					<li
-						key={idx}
-						style={{
-							display: 'grid',
-							gridTemplateColumns: '120px 90px minmax(0, 1fr)',
-							gap: '1.25em',
-							padding: '0.4em 0',
-							borderBottom: '1px solid #eee',
-							alignItems: 'center',
-						}}
-					>
-						<span style={{ fontWeight: 500 }}>{ev.date ? new Date(ev.date).toLocaleDateString('pl-PL') : ''}</span>
-						<span style={{ color: '#111827' }}>{ev.city}</span>
-						<span style={{ fontWeight: 500 }}>
-							{ev.url ? (
-								<a href={ev.url} target="_blank" rel="noreferrer" style={{ color: '#1d4ed8', textDecoration: 'none' }}>
-									{ev.name}
-								</a>
-							) : (
-								<span style={{ color: '#1d4ed8' }}>{ev.name}</span>
-							)}
-						</span>
-					</li>
-				))}
-			</ul>
-		);
-	};
+        if (display.length === 0) {
+            return <p style={{ color: '#64748b', fontStyle: 'italic', textAlign: 'center', marginTop: '20px' }}>Brak wydarzeń.</p>;
+        }
 
-	const renderWorldList = (items) => {
-		if (!items.length) return <p style={{ fontSize: '0.9em', color: '#555' }}>Brak nadchodzących biegów.</p>;
-		const prepared = applyWorldFilters(items).map((ev) => ({ ...ev, name: cleanEventName(ev.name) }));
-		if (!prepared.length) return <p style={{ fontSize: '0.9em', color: '#555' }}>Brak nadchodzących biegów.</p>;
-		return (
-			<ul style={{ listStyle: 'none', padding: 0, marginTop: '0.5em' }}>
-				{prepared.map((ev, idx) => (
-					<li
-						key={idx}
-						style={{
-							display: 'grid',
-							gridTemplateColumns: '120px 120px minmax(0, 1fr)',
-							gap: '2.5em',
-							padding: '0.4em 0',
-							borderBottom: '1px solid #eee',
-							alignItems: 'center',
-						}}
-					>
-						<span style={{ fontWeight: 500 }}>{ev.date ? new Date(ev.date).toLocaleDateString('pl-PL') : ''}</span>
-						<span style={{ color: '#111827' }}>{ev.city}</span>
-						<span style={{ fontWeight: 500 }}>
-							{ev.url ? (
-								<a href={ev.url} target="_blank" rel="noreferrer" style={{ color: '#1d4ed8', textDecoration: 'none' }}>
-									{ev.name}
-								</a>
-							) : (
-								<span style={{ color: '#1d4ed8' }}>{ev.name}</span>
-							)}
-						</span>
-					</li>
-				))}
-			</ul>
-		);
-	};
+        return (
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {display.map((ev, i) => (
+                    <li key={i} style={{
+                        background: '#ffffff',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: '12px',
+                        padding: '14px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '6px',
+                        boxShadow: '0 2px 5px rgba(0,0,0,0.03)'
+                    }}>
+                        {/* --- GÓRA: NAZWA BIEGU (Duży napis) --- */}
+                        {/* Dzięki poprawce w backendzie, ev.name to teraz faktycznie nazwa biegu */}
+                        <div style={{ 
+                            fontWeight: 700, 
+                            color: '#0f172a', 
+                            fontSize: '1rem',
+                            marginBottom: '4px'
+                        }}>
+                             {cleanEventName(ev.name)}
+                        </div>
 
-	return (
-		<section>
-			<h2 style={{ textAlign: 'center', marginBottom: '1.5em' }}>Wydarzenia biegowe</h2>
-			{error && <p style={{ color: 'red', textAlign: 'center' }}>{error}</p>}
-			{loading && !error && <p style={{ textAlign: 'center' }}>Ładowanie aktualnych biegów...</p>}
-			{!loading && !error && (
-				<div
-					style={{
-						display: 'grid',
-						gridTemplateColumns: 'repeat(2, minmax(320px, 1fr))',
-						gap: '5rem',
-						justifyContent: 'center',
-						margin: '0 auto',
-						maxWidth: '1100px',
-					}}
-				>
-					<div>
-						<h3>Polska</h3>
-						<div style={{ marginBottom: '0.75em', fontSize: '0.85em' }}>
-							<label style={{ display: 'block', marginBottom: '0.25em' }}>
-								Data od:
-								<input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={{ marginLeft: '0.5em' }} />
-							</label>
-							<label style={{ display: 'block', marginBottom: '0.25em' }}>
-								<input
-									type="checkbox"
-									checked={sortByCity}
-									onChange={(e) => setSortByCity(e.target.checked)}
-									style={{ marginRight: '0.35em' }}
-								/>
-								Sortuj po miejscowości
-							</label>
-							<label style={{ display: 'block' }}>
-								Szukaj (miasto / nazwa):
-								<input
-									type="text"
-									value={search}
-									onChange={(e) => setSearch(e.target.value)}
-									placeholder="np. Katowice, maraton..."
-									style={{ width: '100%', marginTop: '0.25em' }}
-								/>
-							</label>
-						</div>
-						{renderList(polandEvents)}
-					</div>
-					<div>
-						<h3>Świat</h3>
-						<div style={{ marginBottom: '0.75em', fontSize: '0.85em' }}>
-							<label style={{ display: 'block', marginBottom: '0.25em' }}>
-								Data od:
-								<input
-									type="date"
-									value={worldFromDate}
-									onChange={(e) => setWorldFromDate(e.target.value)}
-									style={{ marginLeft: '0.5em' }}
-								/>
-							</label>
-							<label style={{ display: 'block', marginBottom: '0.25em' }}>
-								Kraj (według listy na stronie):
-								<input
-									type="text"
-									value={worldCountry}
-									onChange={(e) => setWorldCountry(e.target.value)}
-									placeholder="np. Włochy, ITA, USA..."
-									style={{ width: '100%', marginTop: '0.25em' }}
-								/>
-							</label>
-						</div>
-						{renderWorldList(worldEvents)}
-					</div>
-				</div>
-			)}
-		</section>
-	);
+                        {/* --- DÓŁ: DATA i LOKALIZACJA --- */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: '#475569', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span style={{ background: '#eff6ff', color: '#2563eb', padding: '2px 8px', borderRadius: '6px', fontWeight: 500 }}>
+                                    📅 {ev.date}
+                                </span>
+                            </div>
+                            
+                            {/* PINEZKA + MIASTO */}
+                            {/* Dzięki poprawce w backendzie, ev.place to teraz faktycznie miasto */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600, color: '#334155', textAlign: 'right', maxWidth: '65%' }}>
+                                📍 {ev.place && ev.place.trim() !== '' ? ev.place : defaultLocation}
+                            </div>
+                        </div>
+
+                        {ev.url && (
+                            <a href={ev.url} target="_blank" rel="noreferrer" style={{ 
+                                fontSize: '0.85rem', color: '#2563eb', marginTop: '8px', 
+                                textDecoration: 'none', fontWeight: 600, alignSelf: 'flex-start', borderBottom: '1px dashed #2563eb'
+                            }}>
+                                Zobacz szczegóły →
+                            </a>
+                        )}
+                    </li>
+                ))}
+            </ul>
+        );
+    };
+
+    const filteredPoland = filterEvents(polandEvents, fromDate, search);
+    const filteredWorld = filterEvents(
+        worldEvents.filter((ev) => !worldCountry || (ev.place && ev.place.toLowerCase().includes(worldCountry.toLowerCase()))),
+        worldFromDate,
+        ''
+    );
+
+    const inputStyle = { width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.9rem', marginTop: '4px', outline: 'none' };
+    const labelStyle = { display: 'block', marginBottom: '12px', fontSize: '0.85rem', fontWeight: 600, color: '#475569' };
+    const sectionBoxStyle = { background: '#f8fafc', padding: '16px', borderRadius: '12px', marginBottom: '20px', border: '1px solid #e2e8f0' };
+
+    return (
+        <div className="post-card" style={{ maxWidth: '1000px', margin: '2rem auto' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px', borderBottom: '2px solid #e2e8f0', paddingBottom: '15px' }}>
+                <h2 style={{ margin: 0, color: '#1e293b' }}>📅 Kalendarz Biegowy</h2>
+            </div>
+            
+            {loading && <p style={{ textAlign: 'center', color: '#64748b' }}>Pobieranie listy biegów...</p>}
+            {error && <p style={{ color: '#dc2626', textAlign: 'center' }}>{error}</p>}
+
+            {!loading && !error && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '40px' }}>
+                    {/* POLSKA */}
+                    <div>
+                        <h3 style={{ color: '#0f172a', marginTop: 0, marginBottom: '15px' }}>
+                            🇵🇱 Polska <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>({filteredPoland.length})</span>
+                        </h3>
+                        <div style={sectionBoxStyle}>
+                            <label style={labelStyle}>Data od: <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={inputStyle} /></label>
+                            <label style={labelStyle}>Szukaj: <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="np. Warszawa..." style={inputStyle} /></label>
+                            <label style={{ marginTop: '10px', fontSize: '0.85rem', color: '#475569' }}><input type="checkbox" checked={sortByCity} onChange={(e) => setSortByCity(e.target.checked)} /> Sortuj po mieście</label>
+                        </div>
+                        {renderList(filteredPoland, sortByCity, 'Polska')}
+                    </div>
+
+                    {/* ŚWIAT */}
+                    <div>
+                        <h3 style={{ color: '#0f172a', marginTop: 0, marginBottom: '15px' }}>
+                            🌍 Świat <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>({filteredWorld.length})</span>
+                        </h3>
+                        <div style={sectionBoxStyle}>
+                            <label style={labelStyle}>Data od: <input type="date" value={worldFromDate} onChange={(e) => setWorldFromDate(e.target.value)} style={inputStyle} /></label>
+                            <label style={labelStyle}>Kraj / Miasto: <input type="text" value={worldCountry} onChange={(e) => setWorldCountry(e.target.value)} placeholder="np. Berlin..." style={inputStyle} /></label>
+                            <label style={{ marginTop: '10px', fontSize: '0.85rem', color: '#475569' }}><input type="checkbox" checked={sortWorldByLocation} onChange={(e) => setSortWorldByLocation(e.target.checked)} /> Sortuj po lokalizacji</label>
+                        </div>
+                        {renderList(filteredWorld, sortWorldByLocation, 'Świat')}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
 }
 
 export default Events;
