@@ -11,26 +11,41 @@ class UsersAuthTests(TestCase):
 		return self.client.post(url, json.dumps(payload), content_type='application/json')
 
 	def test_register_success(self):
-		res = self.post_json('/api/register/', {'username': 'testuser', 'email': 't@t.pl', 'password': 'GoodP@ss1'})
+		res = self.post_json('/api/register/', {'username': 'testuser', 'email': 't@t.pl', 'password': 'GoodP@ss1', 'height_cm': 180, 'weight_kg': 75})
 		self.assertEqual(res.status_code, 200)
 		self.assertTrue(User.objects.filter(username='testuser').exists())
 
 	def test_register_duplicate_username(self):
 		User.objects.create_user('exists', password='Xx!234567', email='a@a.pl')
-		res = self.post_json('/api/register/', {'username': 'exists', 'email': 'other@t.pl', 'password': 'GoodP@ss1'})
+		res = self.post_json('/api/register/', {'username': 'exists', 'email': 'other@t.pl', 'password': 'GoodP@ss1', 'height_cm': 170, 'weight_kg': 68})
 		self.assertEqual(res.status_code, 409)
 
 	def test_register_duplicate_email(self):
 		User.objects.create_user('user1', password='Xx!234567', email='dup@example.com')
-		res = self.post_json('/api/register/', {'username': 'newuser', 'email': 'dup@example.com', 'password': 'GoodP@ss1'})
+		res = self.post_json('/api/register/', {'username': 'newuser', 'email': 'dup@example.com', 'password': 'GoodP@ss1', 'height_cm': 175, 'weight_kg': 70})
 		self.assertEqual(res.status_code, 409)
 
 	def test_register_invalid_email(self):
-		res = self.post_json('/api/register/', {'username': 'u2', 'email': 'not-an-email', 'password': 'GoodP@ss1'})
+		res = self.post_json('/api/register/', {'username': 'u2', 'email': 'not-an-email', 'password': 'GoodP@ss1', 'height_cm': 160, 'weight_kg': 60})
 		self.assertEqual(res.status_code, 400)
 
 	def test_register_weak_password(self):
-		res = self.post_json('/api/register/', {'username': 'u3', 'email': 'ok@ex.pl', 'password': 'weakpass'})
+		res = self.post_json('/api/register/', {'username': 'u3', 'email': 'ok@ex.pl', 'password': 'weakpass', 'height_cm': 165, 'weight_kg': 65})
+		self.assertEqual(res.status_code, 400)
+
+	def test_register_missing_weight(self):
+		# height present, weight missing -> should fail (400)
+		res = self.post_json('/api/register/', {'username': 'u4', 'email': 'ok2@ex.pl', 'password': 'GoodP@ss1', 'height_cm': 170})
+		self.assertEqual(res.status_code, 400)
+
+	def test_register_missing_height(self):
+		# weight present, height missing -> should fail (400)
+		res = self.post_json('/api/register/', {'username': 'u5', 'email': 'ok3@ex.pl', 'password': 'GoodP@ss1', 'weight_kg': 70})
+		self.assertEqual(res.status_code, 400)
+
+	def test_register_missing_both_height_and_weight(self):
+		# both missing -> should fail (400)
+		res = self.post_json('/api/register/', {'username': 'u6', 'email': 'ok4@ex.pl', 'password': 'GoodP@ss1'})
 		self.assertEqual(res.status_code, 400)
 
 	def test_login_success_and_failure(self):
