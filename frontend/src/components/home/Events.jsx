@@ -29,7 +29,7 @@ function Events() {
         const fetchEvents = async () => {
             setLoading(true);
             try {
-                const res = await fetch('http://127.0.0.1:8000/api/events/?limit=100', { credentials: 'include' });
+                const res = await fetch('http://127.0.0.1:8000/api/events/', { credentials: 'include' });
                 const data = await res.json();
                 if (data.poland) setPolandEvents(data.poland);
                 if (data.world) setWorldEvents(data.world);

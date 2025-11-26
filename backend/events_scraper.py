@@ -6,8 +6,9 @@ import re
 import warnings
 
 # Wyłączenie ostrzeżeń SSL
-from requests.packages.urllib3.exceptions import InsecureRequestWarning
-requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
+import urllib3
+from urllib3.exceptions import InsecureRequestWarning
+urllib3.disable_warnings(InsecureRequestWarning)
 
 # --- DANE ZASTĘPCZE (MOCK) ---
 MOCK_POLAND = [{"name": "Brak danych", "date": "2024-01-01", "place": "Sprawdź konsolę", "url": "#"}]
@@ -124,7 +125,7 @@ def _parse_events_from_html(html_content, base_url="https://www.maratonypolskie.
     return events
 
 def _fetch_events_generic(mapa_nazwa: str, limit: int) -> list[dict]:
-    print(f"\n[SCRAPER] Pobieranie: {mapa_nazwa}")
+    print(f"\n[SCRAPER] Pobieranie: {mapa_nazwa} (limit: {limit})")
     today = datetime.now().date()
     current_year = today.year
     
@@ -136,7 +137,7 @@ def _fetch_events_generic(mapa_nazwa: str, limit: int) -> list[dict]:
         start_month = today.month if year == current_year else 1
         
         for m in range(start_month, 13):
-            # Zwiększyłem limit bufora, żeby nie przerywało za wcześnie
+            # Zwiększony bufor bezpieczeństwa
             if len(all_events) >= limit + 200: 
                 break
                 
@@ -154,13 +155,11 @@ def _fetch_events_generic(mapa_nazwa: str, limit: int) -> list[dict]:
                 found = _parse_events_from_html(html)
                 
                 # --- KLUCZOWA POPRAWKA: ŚCISŁA KONTROLA DATY ---
-                # Odrzucamy "promowane" biegi, które strona wkleja z inną datą niż ta, o którą pytamy.
+                # Odrzucamy "promowane" biegi z inną datą niż aktualnie odpytywany miesiąc
                 valid_for_month = []
                 for ev in found:
                     if ev['date'].year == year and ev['date'].month == m:
                         valid_for_month.append(ev)
-                    # else:
-                        # print(f"DEBUG: Odrzucono promowany/błędny: {ev['name']} ({ev['date']}) podczas pytania o {year}-{m}")
                 
                 all_events.extend(valid_for_month)
 
@@ -182,24 +181,24 @@ def _fetch_events_generic(mapa_nazwa: str, limit: int) -> list[dict]:
     print(f"[SCRAPER] Wynik {mapa_nazwa}: {len(unique)} unikalnych przyszłych.")
     return unique
 
-def fetch_poland_events(limit: int = 100) -> list[dict]:
+# --- ZMIANA LIMITU DOMYŚLNEGO DLA POLSKI NA 200 ---
+def fetch_poland_events(limit: int = 200) -> list[dict]:
     raw = _fetch_events_generic("Polska", limit)
     clean = []
     for ev in raw:
-        # Usuwamy te, które mają kod kraju (np. GER) - zabezpieczenie
         if re.search(r'\([A-Z]{2,3}\)', ev["place"]):
             continue
         clean.append(ev)
     return clean[:limit]
 
-def fetch_world_events(limit: int = 100) -> list[dict]:
-    # Pobieramy więcej, bo dużo odpadnie przy filtracji
+# --- ZMIANA LIMITU DOMYŚLNEGO DLA ŚWIATA NA 60 ---
+def fetch_world_events(limit: int = 60) -> list[dict]:
+    # Pobieramy z zapasem dla filtracji
     raw = _fetch_events_generic("Swiat", limit + 200)
     clean = []
     
     for ev in raw:
         place = ev["place"]
-        # Filtr Świata: Musi mieć kod kraju w nawiasie np. (GER)
         has_country_code = bool(re.search(r'\([A-Z]{2,3}\)', place))
         
         if has_country_code:
