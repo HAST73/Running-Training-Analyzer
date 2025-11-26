@@ -1117,7 +1117,11 @@ def attach_hr(request: HttpRequest, workout_id: int) -> JsonResponse:
                 lon = tp.get('lon')
                 if lat is None or lon is None:
                     continue
-                time_el = tp.find('g:time', ns) or tp.find('time')
+                # Avoid testing an Element's truth value (deprecated).
+                # First try namespaced element, then fallback to non-namespaced.
+                time_el = tp.find('g:time', ns)
+                if time_el is None:
+                    time_el = tp.find('time')
                 ms = None
                 if time_el is not None and time_el.text:
                     from datetime import datetime
