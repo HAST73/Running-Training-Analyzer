@@ -33,14 +33,12 @@ function Register({ afterAuth }) {
       return;
     }
     setCheckingUsername(true);
-    // Czyścimy stary błąd pola
     setFieldErrors(prev => { const newErrors = {...prev}; delete newErrors.username; return newErrors; });
 
     try {
       const res = await fetch(`http://127.0.0.1:8000/api/check_username/?username=${encodeURIComponent(name)}`);
       if (res.ok) {
         const data = await res.json();
-        // Zakładamy, że API zwraca { available: true/false }
         if (data && typeof data.available === 'boolean') {
           setUsernameAvailable(data.available);
           if (!data.available) {
@@ -67,7 +65,6 @@ function Register({ afterAuth }) {
   }, [email]);
 
   async function checkEmailAvailability(mail) {
-    // Najpierw sprawdź czy format jest poprawny regexem, żeby nie pytać serwera o bzdury
     if (!mail || !/\S+@\S+\.\S+/.test(mail)) {
       setEmailAvailable(null);
       return;
@@ -76,7 +73,6 @@ function Register({ afterAuth }) {
     setFieldErrors(prev => { const newErrors = {...prev}; delete newErrors.email; return newErrors; });
 
     try {
-      // Zakładam, że stworzysz/masz taki endpoint na wzór check_username
       const res = await fetch(`http://127.0.0.1:8000/api/check_email/?email=${encodeURIComponent(mail)}`);
       if (res.ok) {
         const data = await res.json();
@@ -89,7 +85,6 @@ function Register({ afterAuth }) {
           setEmailAvailable(null);
         }
       } else {
-        // Jeśli endpoint nie istnieje, ignorujemy błąd (walidacja nastąpi przy submit)
         setEmailAvailable(null);
       }
     } catch (e) {
@@ -127,15 +122,24 @@ function Register({ afterAuth }) {
     if (!validateEmailFormat(email)) errors.email = 'Podaj poprawny adres email.';
     if (!validatePassword(password)) errors.password = 'Hasło: min. 8 znaków, duża litera i znak specjalny.';
 
+    // ZMIANA: Walidacja wzrostu i wagi (pola wymagane)
+    if (!heightCm || parseInt(heightCm) <= 0) errors.height_cm = 'Wzrost jest wymagany (min. 1 cm).';
+    if (!weightKg || parseFloat(weightKg) <= 0) errors.weight_kg = 'Waga jest wymagana.';
+
     if (Object.keys(errors).length > 0) {
         setFieldErrors(errors);
         return;
     }
 
     try {
-      const payload = { username, email, password };
-      if (heightCm.trim() !== '') payload.height_cm = heightCm.trim();
-      if (weightKg.trim() !== '') payload.weight_kg = weightKg.trim();
+      // ZMIANA: wysyłamy height_cm i weight_kg bez warunków
+      const payload = { 
+        username, 
+        email, 
+        password,
+        height_cm: heightCm,
+        weight_kg: weightKg
+      };
 
       const res = await fetch('http://127.0.0.1:8000/api/register/', {
         method: 'POST',
@@ -147,17 +151,13 @@ function Register({ afterAuth }) {
       const data = await res.json();
       
       if (!res.ok) {
-        // --- TŁUMACZENIE BŁĘDÓW Z BACKENDU ---
         let serverError = data.error || 'Błąd rejestracji';
-        
-        // Sprawdzamy czy backend zwrócił znane komunikaty po angielsku
         if (serverError.toLowerCase().includes('username taken') || serverError.toLowerCase().includes('already exists')) {
             serverError = 'Ta nazwa użytkownika jest już zajęta.';
         } 
         else if (serverError.toLowerCase().includes('email') && serverError.toLowerCase().includes('taken')) {
             serverError = 'Ten adres email jest już powiązany z innym kontem.';
         }
-
         setError(serverError);
         return;
       }
@@ -178,12 +178,12 @@ function Register({ afterAuth }) {
     }
   };
 
-  // Style pomocnicze dla inputów
+  // Style pomocnicze dla inputów (bez zmian)
   const inputWrapperStyle = { position: 'relative', width: '100%' };
   const inputStyle = (isAvailable) => ({
       width: '100%',
       boxSizing: 'border-box',
-      paddingRight: '90px', // miejsce na napis
+      paddingRight: '90px', 
       borderColor: isAvailable === false ? 'red' : (isAvailable === true ? 'green' : '')
   });
   const loadingTextStyle = {
@@ -253,7 +253,7 @@ function Register({ afterAuth }) {
             {fieldErrors.password && <div className="field-error" style={{color: 'red', fontSize: '0.8em'}}>{fieldErrors.password}</div>}
           </label>
 
-          {/* --- WZROST --- */}
+          {/* --- WZROST (wymagane) --- */}
           <label>
             Wzrost (cm)
             <input
@@ -261,14 +261,16 @@ function Register({ afterAuth }) {
               onChange={(e) => setHeightCm(e.target.value)}
               onKeyDown={blockInvalidNumberChars}
               type="number"
-              min="0"
+              min="1"
               name="height_cm"
+              required
               placeholder="np. 180"
               style={{ width: '100%', boxSizing: 'border-box' }}
             />
+            {fieldErrors.height_cm && <div className="field-error" style={{color: 'red', fontSize: '0.8em'}}>{fieldErrors.height_cm}</div>}
           </label>
 
-          {/* --- WAGA --- */}
+          {/* --- WAGA (wymagane) --- */}
           <label>
             Waga (kg)
             <input
@@ -276,12 +278,14 @@ function Register({ afterAuth }) {
               onChange={(e) => setWeightKg(e.target.value)}
               onKeyDown={blockInvalidNumberChars}
               type="number"
-              min="0"
+              min="1"
               step="0.1"
               name="weight_kg"
+              required
               placeholder="np. 72.5"
               style={{ width: '100%', boxSizing: 'border-box' }}
             />
+             {fieldErrors.weight_kg && <div className="field-error" style={{color: 'red', fontSize: '0.8em'}}>{fieldErrors.weight_kg}</div>}
           </label>
 
           {/* GŁÓWNY BŁĄD FORMULARZA */}
