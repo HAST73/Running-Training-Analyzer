@@ -290,8 +290,8 @@ function Home() {
                                 <div className="goal-ring">
                                     <div className="goal-ring-fill" style={{ '--goal-progress': goalProgress }} />
                                     <div className="goal-ring-center">
-                                        <div className="goal-ring-value">{totalThisPeriodM.toFixed(0)}</div>
-                                        <div className="goal-ring-label">m w tym okresie</div>
+                                        <div className="goal-ring-value">{(totalThisPeriodM / 1000).toFixed(2)}</div>
+                                        <div className="goal-ring-label">km w tym okresie</div>
                                     </div>
                                 </div>
                                 <div className="home-goal-details">
