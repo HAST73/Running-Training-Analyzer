@@ -6,28 +6,27 @@ from django.contrib.auth.models import User
 from django.db import transaction
 from django.db.models import Count
 from workouts.models import Workout
-from .models import Post, PostLike, PostComment, FriendRequest, Friendship, PostReaction
+from .models import Post, PostComment, FriendRequest, Friendship, PostReaction
 
 
 def _serialize_post(p: Post, user) -> dict:
-	return {
-		"id": p.id,
-		"user": p.user.username,
-		"user_id": p.user.id,
-		"workout_id": p.workout_id,
-		"text": p.text,
-		"image_url": p.image.url if p.image else None,
-		"created_at": p.created_at.isoformat(),
-		"likes_count": p.likes.count(),
-		"comments_count": p.comments.count(),
-		"liked": p.likes.filter(user=user).exists() if user.is_authenticated else False,
-		"is_global": p.is_global,
-		"reaction_counts": _reaction_counts(p),
-		"user_reactions": _user_reactions(p, user),
-	}
+    return {
+        "id": p.id,
+        "user": p.user.username,
+        "user_id": p.user.id,
+        "workout_id": p.workout_id,
+        "text": p.text,
+        "image_url": p.image.url if p.image else None,
+        "created_at": p.created_at.isoformat(),
+        # USUNIĘTO likes_count i liked, ponieważ model PostLike już nie istnieje
+        "comments_count": p.comments.count(),
+        "is_global": p.is_global,
+        "reaction_counts": _reaction_counts(p),
+        "user_reactions": _user_reactions(p, user),
+    }
 
 
-ALLOWED_REACTIONS = ["love", "fire", "party"]  # 'like' handled by PostLike
+ALLOWED_REACTIONS = ["love", "fire", "party"]  # likes removed; use reactions
 
 
 def _reaction_counts(p: Post) -> dict:
@@ -107,20 +106,8 @@ def list_or_create_posts(request: HttpRequest) -> JsonResponse:
 
 @login_required
 def toggle_like(request: HttpRequest, post_id: int) -> JsonResponse:
-	if request.method != "POST":
-		return JsonResponse({"error": "Only POST allowed"}, status=405)
-	try:
-		post = Post.objects.get(id=post_id)
-	except Post.DoesNotExist:
-		return JsonResponse({"error": "Post not found"}, status=404)
-	like = PostLike.objects.filter(post=post, user=request.user).first()
-	if like:
-		like.delete()
-		liked = False
-	else:
-		PostLike.objects.create(post=post, user=request.user)
-		liked = True
-	return JsonResponse({"liked": liked, "likes_count": post.likes.count()})
+	# Endpoint deprecated since likes feature was removed
+	return JsonResponse({"error": "Likes disabled"}, status=410)
 
 
 @login_required
