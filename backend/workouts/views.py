@@ -21,8 +21,8 @@ def list_workouts(request: HttpRequest) -> JsonResponse:
     qs = Workout.objects.filter(user=request.user).order_by("-created_at")
     items = []
     for w in qs:
-        # Keep "gpx_file" in payload for frontend truthiness checks
-        has_gpx = bool(w.gpx_data) or bool(w.gpx_file)
+        # Has GPX attached (inline only; legacy FileField may not exist)
+        has_gpx = bool(w.gpx_data)
         raw = w.raw_data or {}
         hr_stats = None
         if isinstance(raw, dict):
@@ -37,7 +37,7 @@ def list_workouts(request: HttpRequest) -> JsonResponse:
                 "performed_at": w.performed_at,
                 "source": w.source,
                 "manual": w.manual,
-                # expose boolean for compatibility
+                # expose boolean for compatibility (frontend checks truthiness)
                 "gpx_file": has_gpx,
                 "hr_stats": hr_stats,
             }
@@ -226,17 +226,6 @@ def upload_gpx(request: HttpRequest, workout_id: int) -> JsonResponse:
             disp_name = (workout.gpx_name or f"workout_{workout.id}.gpx").replace('"', '')
             resp["Content-Disposition"] = f"inline; filename=\"{disp_name}\""
             return resp
-
-        # Fallback to legacy file if still present
-        if workout.gpx_file and getattr(workout.gpx_file, 'file', None):
-            try:
-                data = workout.gpx_file.read()
-                resp = HttpResponse(data, content_type="application/gpx+xml")
-                disp_name = (workout.gpx_file.name.split('/')[-1] or f"workout_{workout.id}.gpx").replace('"', '')
-                resp["Content-Disposition"] = f"inline; filename=\"{disp_name}\""
-                return resp
-            except Exception:
-                pass
         return JsonResponse({"error": "No GPX attached"}, status=404)
 
     if request.method != "POST":
@@ -251,14 +240,7 @@ def upload_gpx(request: HttpRequest, workout_id: int) -> JsonResponse:
     except Workout.DoesNotExist:
         return JsonResponse({"error": "Workout not found"}, status=404)
 
-    # Remove old stored file if present and clear FileField
-    if workout.gpx_file:
-        try:
-            if workout.gpx_file.name:
-                default_storage.delete(workout.gpx_file.name)
-        except Exception:
-            pass
-        workout.gpx_file = None
+    # Ensure legacy field not accessed (column may be removed)
 
     # Store GPX inline in DB (obsługa JSON trackpoints -> konwersja do GPX)
     raw_content = file.read()
@@ -281,7 +263,6 @@ def upload_gpx(request: HttpRequest, workout_id: int) -> JsonResponse:
     workout.gpx_size = len(gpx_bytes) if gpx_bytes is not None else None
     workout.gpx_data = gpx_bytes
     workout.save(update_fields=[
-        "gpx_file",
         "gpx_name",
         "gpx_mime",
         "gpx_size",

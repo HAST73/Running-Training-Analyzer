@@ -94,11 +94,6 @@ def workout_analysis(request: HttpRequest, workout_id: int) -> JsonResponse:
     points = []
     if w.gpx_data:
         points = parse_gpx(bytes(w.gpx_data))
-    elif w.gpx_file and getattr(w.gpx_file, "file", None):
-        try:
-            points = parse_gpx(w.gpx_file.read())
-        except Exception:
-            points = []
 
     # 2) ANALIZA PODSTAWOWA (z GPX)
     analysis = analyze_track(points)
