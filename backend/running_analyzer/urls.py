@@ -23,7 +23,6 @@ from django.conf.urls.static import static
 from workouts import views as workout_views
 from events import views as events_views
 from workout_analysis import views as analysis_views
-from users import views as user_views
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -36,6 +35,9 @@ urlpatterns = [
     path('api/activity/recent/', user_views.recent_activity, name='recent_activity'),
     path('api/activity/clear_all/', user_views.clear_activity, name='clear_activity'),
     path('api/activity/<int:activity_id>/', user_views.delete_activity, name='delete_activity'),
+    path('api/strava/status/', user_views.strava_status, name='strava_status'),
+    path('api/strava/connect/', user_views.strava_connect_json, name='strava_connect_json'),
+    path('api/strava/unlink/', user_views.strava_unlink, name='strava_unlink'),
     path('oauth/strava/login/', user_views.strava_login, name='strava_login'),
     path('oauth/strava/callback/', user_views.strava_callback, name='strava_callback'),
     path('api/workouts/', workout_views.list_workouts, name='workouts_list'),

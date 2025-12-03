@@ -17,28 +17,81 @@ from .models import UserProfile, ActivityLog
 
 
 def session(request):
-	if request.user.is_authenticated:
-		profile = getattr(request.user, "profile", None)
-		needs_measurements = False
-		height_cm = None
-		weight_kg = None
-		if profile:
-			height_cm = profile.height_cm
-			weight_kg = profile.weight_kg
-			needs_measurements = (profile.height_cm is None or profile.weight_kg is None)
-		pro_unlocked = Payment.objects.filter(user=request.user, status="paid").exists()
-		# Rezygnujemy z wymuszania zmiany nazwy – użytkownik może ją zmienić opcjonalnie
-		needs_username = False
-		return JsonResponse({
-			"authenticated": True,
-			"username": request.user.username,
-			"height_cm": height_cm,
-			"weight_kg": float(weight_kg) if weight_kg is not None else None,
-			"needs_measurements": needs_measurements,
-			"pro_unlocked": pro_unlocked,
-			"needs_username": needs_username,
-		})
-	return JsonResponse({"authenticated": False})
+    if request.user.is_authenticated:
+        profile = getattr(request.user, "profile", None)
+        needs_measurements = False
+        height_cm = None
+        weight_kg = None
+        strava_linked = False # Domyślnie false
+
+        if profile:
+            height_cm = profile.height_cm
+            weight_kg = profile.weight_kg
+            needs_measurements = (profile.height_cm is None or profile.weight_kg is None)
+            # Sprawdź czy są tokeny
+            if profile.strava_access_token:
+                strava_linked = True
+
+        pro_unlocked = Payment.objects.filter(user=request.user, status="paid").exists()
+        needs_username = False
+        
+        return JsonResponse({
+            "authenticated": True,
+            "username": request.user.username,
+            "height_cm": height_cm,
+            "weight_kg": float(weight_kg) if weight_kg is not None else None,
+            "needs_measurements": needs_measurements,
+            "pro_unlocked": pro_unlocked,
+            "needs_username": needs_username,
+            "strava_linked": strava_linked, # <-- DODANO TO
+        })
+    return JsonResponse({"authenticated": False})
+
+def strava_status(request):
+    """Zwraca status połączenia ze Stravą dla Reacta."""
+    if not request.user.is_authenticated:
+        return JsonResponse({"linked": False})
+    
+    profile = getattr(request.user, "profile", None)
+    is_linked = False
+    if profile and profile.strava_access_token:
+        is_linked = True
+        
+    return JsonResponse({"linked": is_linked})
+
+def strava_connect_json(request):
+    """Zwraca URL autoryzacji w JSON (dla przycisku w React)."""
+    if not STRAVA_CLIENT_ID:
+        return JsonResponse({"error": "STRAVA_CLIENT_ID not set"}, status=500)
+    
+    redirect_uri = request.build_absolute_uri(STRAVA_REDIRECT_PATH)
+    scope = "read,activity:read"
+    auth_url = (
+        f"https://www.strava.com/oauth/authorize?client_id={STRAVA_CLIENT_ID}&response_type=code&redirect_uri={redirect_uri}&approval_prompt=auto&scope={scope}"
+    )
+    return JsonResponse({"auth_url": auth_url})
+
+@csrf_exempt
+def strava_unlink(request):
+    """Usuwa tokeny Stravy z profilu."""
+    if not request.user.is_authenticated:
+        return JsonResponse({"error": "Auth required"}, status=401)
+    if request.method != "POST":
+        return JsonResponse({"error": "POST required"}, status=405)
+    
+    profile = getattr(request.user, "profile", None)
+    if profile:
+        # Czyścimy tokeny
+        profile.strava_access_token = None
+        profile.strava_refresh_token = None
+        profile.strava_token_expires_at = None
+        # Opcjonalnie: czyścimy ID, jeśli chcemy całkowitego resetu, 
+        # ale zazwyczaj ID zostawia się, by uniknąć duplikatów w przyszłości.
+        # Jeśli chcesz pełnego rozłączenia:
+        # profile.strava_athlete_id = None 
+        profile.save()
+        
+    return JsonResponse({"status": "ok"})
 
 
 @csrf_exempt

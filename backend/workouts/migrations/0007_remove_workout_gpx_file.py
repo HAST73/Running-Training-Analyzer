@@ -6,8 +6,8 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RemoveField(
-            model_name="workout",
-            name="gpx_file",
+        migrations.RunSQL(
+            sql="ALTER TABLE workouts_workout DROP COLUMN IF EXISTS gpx_file",
+            reverse_sql="ALTER TABLE workouts_workout ADD COLUMN gpx_file boolean",
         ),
     ]
