@@ -222,7 +222,7 @@ function Workouts() {
         <div>
           <h3>Adidas Running</h3>
           <p style={{ fontSize: '0.9em', color: '#555' }}>
-            Wgraj pierwszy plik w formacie <strong>.json</strong> wyeksportowany z aplikacji Adidas Running.
+            Wgraj plik w formacie <strong>.json</strong> wyeksportowany z aplikacji Adidas Running
           </p>
           <label
             htmlFor="workout-upload-adidas"
@@ -250,7 +250,7 @@ function Workouts() {
         <div>
           <h3>Strava</h3>
           <p style={{ fontSize: '0.9em', color: '#555' }}>
-            Wgraj plik <strong>.fit</strong> wyeksportowany ze Stravy. Dane zostaną sparsowane po stronie backendu.
+            Wgraj plik <strong>.fit</strong> wyeksportowany z aplikacji Strava
           </p>
           <label
             htmlFor="workout-upload-strava"

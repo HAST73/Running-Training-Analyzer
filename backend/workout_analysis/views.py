@@ -429,18 +429,25 @@ def workout_analysis(request: HttpRequest, workout_id: int) -> JsonResponse:
             if not ps:
                 continue
             if ps > med * 1.6 or ps - med > 60:
-                suspect_bullets.append(f"Nietypowo wolny km {s.get('km')} ({int(ps)} s/km) – możliwa przerwa lub błąd GPS.")
+                suspect_bullets.append(
+                    f"Nietypowo wolny {s.get('km')} km ({_pace_str(ps)}) – możliwa przerwa lub błąd GPS."
+                )
             elif ps < med * 0.6 or med - ps > 45:
                 # unusually fast kilometer (maybe downhill or GPS spike)
-                suspect_bullets.append(f"Bardzo szybki km {s.get('km')} ({int(ps)} s/km) – sprawdź, czy to nie krótki zjazd lub błąd pomiaru.")
+                suspect_bullets.append(
+                    f"Bardzo szybki {s.get('km')} km ({_pace_str(ps)}) – sprawdź, czy to nie krótki zjazd lub błąd pomiaru."
+                )
 
-    # HR-based observations
+# HR-based observations
     if split_hrs and avg_hr:
         try:
             first_hr = next((s.get('hr_bpm') for s in splits if s.get('hr_bpm') is not None), None)
             last_hr = next((s.get('hr_bpm') for s in reversed(splits) if s.get('hr_bpm') is not None), None)
+            
             if first_hr and last_hr and (last_hr - first_hr) >= 8:
-                improve_bullets.append('Tętno rośnie w czasie treningu — możliwy wzrost zmęczenia. Zadbaj o pacing i nawodnienie.')
+                # ZMIANA TREŚCI PONIŻEJ:
+                improve_bullets.append('Wystąpił wyraźny dryf tętna (wzrost w czasie). Sugeruje to narastające zmęczenie mięśniowe – pracuj nad wytrzymałością tlenową.')
+                
         except Exception:
             pass
 
@@ -494,23 +501,52 @@ def workout_analysis(request: HttpRequest, workout_id: int) -> JsonResponse:
         for b in improve_bullets:
             lines.append(f"- {b}")
 
-    # Weather / hydration hints
+    # Weather / hydration hints (deduplicated hydration advice)
     weather = adidas_meta.get("weather") or {}
     temp_c = weather.get("temperature_c")
     humidity = weather.get("humidity_percent")
     dehydration_ml = adidas_meta.get("dehydration_volume_ml")
-    # ensure we don't duplicate the 'Na co zwrócić uwagę' header if it was added above
     improve_section_added = any(l.strip().startswith('Na co zwrócić uwagę:') for l in lines)
+# Sprawdzamy czy w ogóle mamy dane
     if temp_c is not None or dehydration_ml is not None or humidity is not None:
         if not improve_section_added:
             lines.append("\nNa co zwrócić uwagę:")
             improve_section_added = True
-        if temp_c and temp_c >= 24:
-            lines.append("- Wysoka temperatura – rozważ zwiększenie nawodnienia i chłodzenia.")
-        if humidity and humidity >= 75:
-            lines.append("- Wysoka wilgotność – tętno może być wyższe, pilnuj tempa początkowego.")
-        if dehydration_ml and dehydration_ml > 1000:
-            lines.append("- Duża utrata płynów – uzupełnij elektrolity po treningu.")
+
+        # Sprawdzamy czy w ogóle mamy dane
+    if temp_c is not None or dehydration_ml is not None or humidity is not None:
+        if not improve_section_added:
+            lines.append("\nNa co zwrócić uwagę:")
+            improve_section_added = True
+
+        # --- 1. TEMPERATURA (Kontekst: Taktyka i zarządzanie siłami) ---
+        if temp_c is not None:
+            if temp_c < 5:
+                lines.append("- Niska temperatura zwiększa ryzyko kontuzji – pamiętaj o dynamicznej rozgrzewce w cieple przed wyjściem.")
+            elif 5 <= temp_c < 15:
+                lines.append("- Warunki termiczne były idealne (5-15°C) – to optymalne okno do budowania wydolności i szybkości.")
+            elif 15 <= temp_c < 24:
+                lines.append("- Przy tej temperaturze organizm zużywa więcej energii na chłodzenie, co może naturalnie podbić tętno o kilka uderzeń.")
+            elif temp_c >= 24:
+                lines.append("- Upał to duże obciążenie dla serca. W takich warunkach kluczowe jest chłodzenie ciała, a nie walka o tempo za wszelką cenę.")
+
+        # --- 2. WILGOTNOŚĆ (Kontekst: Wydolność i odczucia) ---
+        if humidity is not None:
+            if humidity < 40:
+                lines.append("- Suche powietrze może podrażniać drogi oddechowe. Jeśli czujesz drapanie w gardle, zadbaj o nawilżenie śluzówki po biegu.")
+            elif 40 <= humidity <= 60:
+                pass # Komfortowa norma, nie zaśmiecamy raportu
+            elif humidity > 75:
+                lines.append("- Wysoka wilgotność utrudnia parowanie potu. Odczuwalne zmęczenie mogło być wyższe niż wskazywałoby na to samo tempo.")
+
+        # --- 3. UTRATA PŁYNÓW (Kontekst: Regeneracja) ---
+        if dehydration_ml is not None:
+            # Zaokrąglamy do całości dla czytelności
+            loss = int(dehydration_ml)
+            if 500 < loss <= 1000:
+                lines.append(f"- Straciłeś ok. {loss}ml płynów. Wypij dodatkową szklankę wody lub izotoniku, by przyspieszyć regenerację.")
+            elif loss > 1000:
+                lines.append(f"- Znaczna utrata płynów ({loss}ml). Sama woda to za mało – koniecznie uzupełnij elektrolity, by uniknąć bólu głowy i skurczów.")
 
     # Anthropometric suggestions (BMI) — detailed info and weight range
     weight = user_weight
@@ -547,15 +583,15 @@ def workout_analysis(request: HttpRequest, workout_id: int) -> JsonResponse:
                 to_upper = round(max_w - w, 1)
                 to_lower = round(w - min_w, 1)
                 lines.append(f"Jesteś w normie BMI. Do górnej granicy brakuje Ci około {to_upper} kg, do dolnej jest {to_lower} kg.")
-            # krótka rekomendacja
+            # krótka rekomendacja (bardziej opisowa, bez etykiety "Rekomendacja:")
             if bmi < 18.5:
-                lines.append("- Rekomendacja: zwiększ kaloryczność i pracuj nad siłą mięśniową.")
+                lines.append("- Warto zadbać o nadwyżkę kaloryczną i trening siłowy, by wzmocnić organizm przed cięższym wysiłkiem.")
             elif bmi < 25:
-                lines.append("- Rekomendacja: dobra baza — możesz pracować nad prędkością i wytrzymałością.")
+                lines.append("- Masz optymalne warunki fizyczne – to świetny moment, by bezpiecznie pracować nad szybkością i siłą biegową.")
             elif bmi < 30:
-                lines.append("- Rekomendacja: priorytetem umiarkowana intensywność i stopniowe zwiększanie objętości.")
+                lines.append("- Skup się na długim, spokojnym wysiłku tlenowym – to najskuteczniejsza i najbezpieczniejsza droga do budowania formy.")
             else:
-                lines.append("- Rekomendacja: kontrola intensywności, regularność i konsultacja medyczna jeśli potrzeba.")
+                lines.append("- Dla zdrowia stawów kluczowa jest teraz regularność w bardzo spokojnym tempie (np. marszobiegi), bez presji na prędkość.")
 
     resp["ai_note"] = "\n".join(lines)
 
