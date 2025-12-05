@@ -86,7 +86,9 @@ export default function PostCard({
 
       {post.workout_id && (
         <div className="post-workout-ref">
-          Powiązany trening #{post.workout_id}
+          {post.workout_title
+            ? <>Powiązany trening: {post.workout_title}</>
+            : <>Powiązany trening #{post.workout_id}</>}
         </div>
       )}
 

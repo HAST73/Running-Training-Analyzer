@@ -15,6 +15,7 @@ def _serialize_post(p: Post, user) -> dict:
         "user": p.user.username,
         "user_id": p.user.id,
         "workout_id": p.workout_id,
+		"workout_title": (p.workout.title if getattr(p, "workout", None) else None),
         "text": p.text,
         "image_url": p.image.url if p.image else None,
         "created_at": p.created_at.isoformat(),

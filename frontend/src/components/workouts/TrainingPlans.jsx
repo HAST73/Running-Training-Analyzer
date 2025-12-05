@@ -373,7 +373,7 @@ Cele główne:
             <h3>Treść zablokowana (PRO)</h3>
             <p>Aby uzyskać dostęp do planów treningowych wykup dostęp PRO.</p>
             <div className="plans-lock-actions">
-              <button className="btn-pro-unlock" onClick={beginCheckout} disabled={loadingCheckout}>Odblokuj PRO (59 zł)</button>
+              <button className="btn-pro-unlock" onClick={beginCheckout} disabled={loadingCheckout}>Odblokuj PRO (19 zł)</button>
               <button className="btn-pro-cancel" onClick={() => { window.location.hash = '#home'; }}>Powrót</button>
             </div>
           </div>
