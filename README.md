@@ -4,6 +4,10 @@
 
 Running Training Analyzer is a web application for importing, storing, and analyzing running workouts. It provides a Django backend API and a React single-page frontend. Optional integrations include Strava OAuth (connect/sync account) and Stripe (payments/plans).
 
+## Main page (screenshot)
+
+![Main page](https://raw.githubusercontent.com/HAST73/Running-Training-Analyzer/main/mainpage.png)
+
 ## High-level architecture
 
 - **Frontend (React)**: user interface, calls backend endpoints via HTTP.
