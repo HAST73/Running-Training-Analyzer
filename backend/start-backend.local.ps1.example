@@ -1,0 +1,26 @@
+# Local-only backend environment configuration
+# Copy this file to `start-backend.local.ps1` (it is ignored by git)
+# and fill in your own secrets.
+
+# Database (PostgreSQL)
+# $env:USE_POSTGRES = "1"
+# $env:POSTGRES_HOST = "localhost"
+# $env:POSTGRES_PORT = "5432"
+# $env:POSTGRES_DB = "running_db"
+# $env:POSTGRES_USER = "postgres"
+# $env:POSTGRES_PASSWORD = "<your password>"
+# $env:POSTGRES_SSLMODE = "prefer"
+
+# Strava OAuth
+# $env:STRAVA_CLIENT_ID = "<your client id>"
+# $env:STRAVA_CLIENT_SECRET = "<your client secret>"
+# $env:FRONTEND_REDIRECT_URL = "http://127.0.0.1:3000/#home"
+
+# Stripe
+# $env:STRIPE_SECRET_KEY = "sk_test_..."
+# $env:STRIPE_PUBLISHABLE_KEY = "pk_test_..."
+# $env:STRIPE_WEBHOOK_SECRET = "whsec_..."
+# $env:STRIPE_PLANS_PRODUCT_ID = "prod_..."
+
+# Django
+# $env:DJANGO_SECRET_KEY = "change-me"

@@ -2,14 +2,31 @@ node_modules/
 dist/
 build/
 .env
+.env.*
 *.log
+
+# Secrets / local-only scripts
+**/*.local.ps1
+backend/start-backend.local.ps1
 # Python/Django
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .mypy_cache/
+.ruff_cache/
+.coverage
+coverage/
+htmlcov/
 venv/
 .venv/
+
+# Django runtime artifacts
+**/db.sqlite3
+**/db.sqlite3-journal
+**/*.sqlite3
+**/*.sqlite3-journal
+backend/media/
+backend/staticfiles/
 
 # Editor/OS
 .vscode/
@@ -18,3 +35,7 @@ venv/
 
 # Local trash/temporary
 frontend/.trash/
+
+# Cypress artifacts
+frontend/cypress/screenshots/
+frontend/cypress/videos/

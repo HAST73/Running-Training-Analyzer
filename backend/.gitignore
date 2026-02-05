@@ -1,1 +1,10 @@
 gpx/
+
+# Local DB / runtime output
+db.sqlite3
+db.sqlite3-journal
+media/
+staticfiles/
+
+# Local dev secrets
+start-backend.local.ps1
