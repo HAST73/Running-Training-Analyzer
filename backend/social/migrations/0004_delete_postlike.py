@@ -13,7 +13,7 @@ class Migration(migrations.Migration):
         migrations.SeparateDatabaseAndState(
             database_operations=[
                 migrations.RunSQL(
-                    sql='DROP TABLE IF EXISTS social_postlike CASCADE',
+                    sql='DROP TABLE IF EXISTS social_postlike',
                     reverse_sql=migrations.RunSQL.noop,
                 ),
             ],
